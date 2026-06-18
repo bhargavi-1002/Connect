@@ -1,0 +1,38 @@
+uploads = []
+outputs = []
+
+[[generated]]
+id = "wHkaNPohlFg8Qh05fkSf_"
+uri = "file://artifacts/connect/public/hero-illustration.png"
+type = "image"
+title = "Pixar family communication scene"
+
+[[generated]]
+id = "5OcAZsK8iUd_MxDskt54k"
+uri = "file://artifacts/connect/public/onboarding-cloud.png"
+type = "image"
+title = "Child on cloud with phone"
+
+[[generated]]
+id = "sQoslI6SYhxlrEptMERLC"
+uri = "file://artifacts/connect/public/signup-wave.png"
+type = "image"
+title = "Cute girl waving"
+
+[[generated]]
+id = "FduOE2JgTvn3yNA3WRyE9"
+uri = "file://artifacts/connect/public/otp-shield.png"
+type = "image"
+title = "Glowing security shield"
+
+[[generated]]
+id = "zCE_NIElV7_1YCUrucOMS"
+uri = "file://artifacts/connect/public/panda-security.png"
+type = "image"
+title = "Panda with shield"
+
+[[generated]]
+id = "9141qSkJDW7ushVmybYQ_"
+uri = "file://artifacts/connect/public/features-chat.png"
+type = "image"
+title = "Magical chat bubbles"

@@ -1,10 +1,11 @@
-# [Project name]
+# Connect
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+Stay Close, Even When You're Far. A premium Pixar-inspired family communication platform for residential students who can only access shared computers.
 
 ## Run & Operate
 
-- `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
+- `pnpm --filter @workspace/api-server run dev` — run the API server (port 8080, path `/api`)
+- `pnpm --filter @workspace/connect run dev` — run the frontend (port 20001, path `/`)
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
@@ -14,6 +15,7 @@ _Replace the heading above with the project's name, and this line with one sente
 ## Stack
 
 - pnpm workspaces, Node.js 24, TypeScript 5.9
+- Frontend: React + Vite, Tailwind CSS, Framer Motion, wouter routing
 - API: Express 5
 - DB: PostgreSQL + Drizzle ORM
 - Validation: Zod (`zod/v4`), `drizzle-zod`
@@ -22,15 +24,34 @@ _Replace the heading above with the project's name, and this line with one sente
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `lib/api-spec/openapi.yaml` — OpenAPI contract (source of truth)
+- `lib/db/src/schema/` — Drizzle table schemas (users, connections, conversations, messages, emergency_alerts, settings, devices)
+- `artifacts/api-server/src/routes/` — Express route handlers
+- `artifacts/connect/src/pages/` — Frontend pages (Landing, Onboarding, Signup, Verify, Login, Chats, Chat, Themes, Settings, Devices, etc.)
+- `artifacts/connect/src/components/` — Reusable UI components
+- `lib/api-client-react/src/generated/` — Generated React Query hooks (do not edit)
+- `lib/api-zod/src/generated/` — Generated Zod schemas for server validation (do not edit)
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- Demo user approach: A seeded demo user (`sree_07`) exists for exploring the app without requiring real auth. Firebase Auth is frontend-only and not yet wired to the backend.
+- Priority messages are a first-class entity (enum: normal, good_news, important, urgent, emergency) that affect notification severity.
+- Auto-logout is a core security feature for shared/public computers — enabled by default with 15-minute timeout.
+- The api-zod barrel (`lib/api-zod/src/index.ts`) only re-exports from `./generated/api` (not `./generated/types`) to prevent TS2308 collisions when operations have both path and query params.
+- The codegen script in `lib/api-spec/package.json` uses a `printf` post-step to overwrite the barrel after orval regenerates it.
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+- Landing page with hero, features, "Connect in Your Way" section, auto-logout feature, and "Your safety, our priority" section
+- Onboarding (3 screens): Welcome → Create Account with username availability check → OTP Verification
+- Authentication: Google, Mobile OTP, Username/Password
+- Home chat list with tabs: All / Important / Groups / Emergency
+- Individual chat with priority message system (5 levels with unique gradients and animations)
+- Emergency alert system with red glowing UI
+- Theme gallery: Midnight, Galaxy, Sunset, Ocean, Forest, Lavender, Candy, Bubblegum
+- Auto-logout security feature for shared computers
+- Connected devices management
+- Settings, profile, connections (username search, QR, invite link)
 
 ## User preferences
 
@@ -38,7 +59,10 @@ _Populate as you build — explicit user instructions worth remembering across s
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- After any OpenAPI spec change, run `pnpm --filter @workspace/api-spec run codegen` before using updated hooks.
+- The codegen overwrites `lib/api-zod/src/index.ts` — the script includes a `printf` fix to restore a clean barrel.
+- Backend routes use hardcoded `DEMO_USER_ID = 1` (first seeded user) until real auth is wired up.
+- Do not run `pnpm dev` at workspace root — individual workflows use injected `PORT` and `BASE_PATH` env vars.
 
 ## Pointers
 

@@ -1,15 +1,51 @@
 import { useState } from "react";
 import { Link } from "wouter";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Loader2 } from "lucide-react";
 import { AppLayout } from "@/components/app-layout";
 import { Switch } from "@/components/ui/switch";
 import { motion } from "framer-motion";
+import { useAuth } from "@/contexts/AuthContext";
+import { updateSettings } from "@/lib/firestore";
+import { useToast } from "@/hooks/use-toast";
+
+const timeOptions = [
+  { label: "5 min", value: 5 },
+  { label: "15 min", value: 15 },
+  { label: "30 min", value: 30 },
+  { label: "1 hr", value: 60 },
+];
 
 export default function AutoLogoutPage() {
-  const [enabled, setEnabled] = useState(true);
-  const [time, setTime] = useState(15);
-  
-  const options = [5, 10, 15, 30, 60];
+  const { profile, refreshProfile } = useAuth();
+  const { toast } = useToast();
+  const [saving, setSaving] = useState(false);
+
+  const currentMinutes = profile?.autoLogoutMinutes ?? 15;
+  const enabled = currentMinutes > 0;
+
+  const handleToggle = async (on: boolean) => {
+    if (!profile) return;
+    setSaving(true);
+    try {
+      await updateSettings(profile.uid, { autoLogoutMinutes: on ? 15 : 0 });
+      await refreshProfile();
+      toast({ title: on ? "Auto logout enabled" : "Auto logout disabled" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleTimeChange = async (minutes: number) => {
+    if (!profile) return;
+    setSaving(true);
+    try {
+      await updateSettings(profile.uid, { autoLogoutMinutes: minutes });
+      await refreshProfile();
+      toast({ title: `Auto logout set to ${minutes} min` });
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <AppLayout showBottomNav={false}>
@@ -18,56 +54,67 @@ export default function AutoLogoutPage() {
           <ArrowLeft className="w-5 h-5 text-white" />
         </Link>
         <h1 className="text-xl font-bold">Auto Logout</h1>
+        {saving && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground ml-auto" />}
       </header>
 
-      <div className="p-6 flex flex-col items-center">
-        <motion.div 
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="relative w-full aspect-square max-w-[200px] mb-8 mt-4"
+      <div className="p-6 space-y-6">
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="glass-card p-5 rounded-3xl"
         >
-          <div className="absolute inset-0 bg-primary/20 blur-[50px] rounded-full" />
-          <img 
-            src="/panda-security.png" 
-            alt="Panda with security shield" 
-            className="w-full h-full object-contain relative z-10 drop-shadow-2xl"
-          />
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="font-bold text-white text-[17px]">Auto Logout</h3>
+              <p className="text-sm text-muted-foreground mt-1">Automatically sign out after inactivity on shared computers</p>
+            </div>
+            <Switch
+              checked={enabled}
+              onCheckedChange={handleToggle}
+              disabled={saving}
+              className="data-[state=checked]:bg-primary"
+            />
+          </div>
         </motion.div>
 
-        <div className="text-center mb-8">
-          <h2 className="text-2xl font-bold mb-2">Stay Safe on Shared PCs</h2>
-          <p className="text-muted-foreground text-sm max-w-xs mx-auto">
-            Connect will automatically log you out if you forget to do so after using a library or lab computer.
-          </p>
-        </div>
-
-        <div className="w-full space-y-6">
-          <div className="glass-card p-5 rounded-3xl flex justify-between items-center">
-            <div>
-              <h3 className="font-semibold text-lg text-white">Enable Auto Logout</h3>
-              <p className="text-xs text-muted-foreground">Recommended for students</p>
-            </div>
-            <Switch checked={enabled} onCheckedChange={setEnabled} className="data-[state=checked]:bg-primary" />
-          </div>
-
-          <div className={`transition-opacity duration-300 ${enabled ? 'opacity-100' : 'opacity-50 pointer-events-none'}`}>
-            <h3 className="text-sm font-semibold text-muted-foreground mb-4 pl-2 uppercase tracking-wider">Log out after inactivity</h3>
-            
-            <div className="grid grid-cols-5 gap-2">
-              {options.map((opt) => (
+        {enabled && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="glass-card p-5 rounded-3xl"
+          >
+            <h3 className="font-bold text-white mb-4">Logout After</h3>
+            <div className="grid grid-cols-2 gap-3">
+              {timeOptions.map(opt => (
                 <button
-                  key={opt}
-                  onClick={() => setTime(opt)}
-                  disabled={!enabled}
-                  className={`py-3 rounded-2xl text-sm font-medium transition-all ${
-                    time === opt 
-                      ? 'bg-primary text-white glowing-primary scale-105' 
-                      : 'bg-surface border border-white/5 text-muted-foreground hover:bg-white/5'
+                  key={opt.value}
+                  disabled={saving}
+                  onClick={() => handleTimeChange(opt.value)}
+                  className={`p-4 rounded-2xl text-center font-semibold transition-all ${
+                    currentMinutes === opt.value
+                      ? "bg-gradient-to-br from-primary to-secondary text-white shadow-[0_0_15px_rgba(124,77,255,0.3)]"
+                      : "glass-card text-muted-foreground hover:text-white hover:bg-white/5"
                   }`}
                 >
-                  {opt >= 60 ? `${opt/60}h` : `${opt}m`}
+                  {opt.label}
                 </button>
               ))}
+            </div>
+          </motion.div>
+        )}
+
+        <div className="glass-card p-5 rounded-3xl border-warning/20">
+          <div className="flex gap-3">
+            <div className="w-8 h-8 rounded-full bg-warning/20 flex items-center justify-center text-warning flex-shrink-0 mt-0.5">
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M12 9v4M12 17h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+              </svg>
+            </div>
+            <div>
+              <h4 className="font-semibold text-warning text-sm">Security Tip</h4>
+              <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                Enable auto logout when using shared or public computers to protect your messages and family connections.
+              </p>
             </div>
           </div>
         </div>

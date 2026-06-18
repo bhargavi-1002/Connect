@@ -1,21 +1,42 @@
-import { useState } from "react";
 import { Link } from "wouter";
-import { ArrowLeft, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Loader2 } from "lucide-react";
 import { AppLayout } from "@/components/app-layout";
 import { motion } from "framer-motion";
+import { useAuth } from "@/contexts/AuthContext";
+import { updateSettings } from "@/lib/firestore";
+import { useToast } from "@/hooks/use-toast";
+import { useState } from "react";
 
 const themes = [
-  { id: "midnight", name: "Midnight", color: "from-blue-900 to-indigo-900", active: true },
-  { id: "galaxy", name: "Galaxy", color: "from-purple-900 to-fuchsia-900", active: false },
-  { id: "sunset", name: "Sunset", color: "from-orange-600 to-rose-600", active: false },
-  { id: "ocean", name: "Ocean", color: "from-cyan-600 to-blue-800", active: false },
-  { id: "forest", name: "Forest", color: "from-emerald-700 to-teal-900", active: false },
-  { id: "lavender", name: "Lavender", color: "from-violet-500 to-purple-700", active: false },
+  { id: "midnight", name: "Midnight", color: "from-blue-900 to-indigo-900" },
+  { id: "galaxy", name: "Galaxy", color: "from-purple-900 to-fuchsia-900" },
+  { id: "sunset", name: "Sunset", color: "from-orange-600 to-rose-600" },
+  { id: "ocean", name: "Ocean", color: "from-cyan-700 to-blue-700" },
+  { id: "forest", name: "Forest", color: "from-green-800 to-emerald-800" },
+  { id: "lavender", name: "Lavender", color: "from-violet-600 to-purple-600" },
+  { id: "candy", name: "Candy", color: "from-pink-500 to-rose-500" },
+  { id: "bubblegum", name: "Bubblegum", color: "from-fuchsia-500 to-pink-400" },
 ];
 
 export default function ThemesPage() {
-  const [activeTab, setActiveTab] = useState("themes");
-  const [activeTheme, setActiveTheme] = useState("midnight");
+  const { profile, refreshProfile } = useAuth();
+  const { toast } = useToast();
+  const [saving, setSaving] = useState<string | null>(null);
+  const active = profile?.theme || "midnight";
+
+  const handleSelect = async (themeId: string) => {
+    if (!profile || themeId === active) return;
+    setSaving(themeId);
+    try {
+      await updateSettings(profile.uid, { theme: themeId });
+      await refreshProfile();
+      toast({ title: `${themes.find(t => t.id === themeId)?.name} theme applied!` });
+    } catch {
+      toast({ title: "Failed to apply theme", variant: "destructive" });
+    } finally {
+      setSaving(null);
+    }
+  };
 
   return (
     <AppLayout showBottomNav={false}>
@@ -23,68 +44,44 @@ export default function ThemesPage() {
         <Link href="/settings" className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors">
           <ArrowLeft className="w-5 h-5 text-white" />
         </Link>
-        <h1 className="text-xl font-bold">Themes & Wallpapers</h1>
+        <h1 className="text-xl font-bold">Themes</h1>
       </header>
 
-      <div className="p-4">
-        <div className="flex p-1 bg-surface rounded-full mb-6">
-          <button 
-            className={`flex-1 py-2.5 text-sm font-medium rounded-full transition-all ${activeTab === 'themes' ? 'bg-primary text-white shadow-lg' : 'text-muted-foreground'}`}
-            onClick={() => setActiveTab('themes')}
-          >
-            Themes
-          </button>
-          <button 
-            className={`flex-1 py-2.5 text-sm font-medium rounded-full transition-all ${activeTab === 'wallpapers' ? 'bg-primary text-white shadow-lg' : 'text-muted-foreground'}`}
-            onClick={() => setActiveTab('wallpapers')}
-          >
-            Wallpapers
-          </button>
-        </div>
+      <div className="p-4 pb-10">
+        <p className="text-sm text-muted-foreground mb-6 px-1">Choose a theme for your chat experience.</p>
 
-        {activeTab === 'themes' && (
-          <div className="grid grid-cols-2 gap-4">
-            {themes.map((theme, i) => (
+        <div className="grid grid-cols-2 gap-4">
+          {themes.map((theme, i) => {
+            const isActive = active === theme.id;
+            const isSaving = saving === theme.id;
+            return (
               <motion.button
                 key={theme.id}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.1 }}
-                onClick={() => setActiveTheme(theme.id)}
-                className={`relative aspect-[3/4] rounded-3xl p-4 flex flex-col justify-end text-left overflow-hidden border-2 transition-all ${activeTheme === theme.id ? 'border-primary glowing-primary scale-[1.02]' : 'border-white/5 hover:border-white/20'}`}
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ delay: i * 0.05 }}
+                onClick={() => handleSelect(theme.id)}
+                disabled={!!saving}
+                className={`relative overflow-hidden rounded-3xl aspect-[4/3] transition-all ${isActive ? "ring-2 ring-white shadow-lg scale-[1.02]" : "hover:scale-[1.01]"}`}
               >
-                <div className={`absolute inset-0 bg-gradient-to-br ${theme.color} opacity-80`} />
-                <div className="absolute inset-0 bg-black/20" />
-                
-                {activeTheme === theme.id && (
-                  <div className="absolute top-4 right-4 w-6 h-6 bg-primary rounded-full flex items-center justify-center shadow-lg">
-                    <CheckCircle2 className="w-4 h-4 text-white" />
+                <div className={`absolute inset-0 bg-gradient-to-br ${theme.color}`} />
+                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                  {isSaving ? (
+                    <Loader2 className="w-6 h-6 text-white animate-spin" />
+                  ) : isActive ? (
+                    <CheckCircle2 className="w-8 h-8 text-white drop-shadow-lg" />
+                  ) : null}
+                </div>
+                <div className="absolute bottom-0 left-0 right-0 bg-black/30 backdrop-blur-sm py-2 px-3">
+                  <div className="flex justify-between items-center">
+                    <span className="text-white font-semibold text-sm">{theme.name}</span>
+                    {isActive && <span className="text-[10px] text-white/80 bg-white/20 px-2 py-0.5 rounded-full">Active</span>}
                   </div>
-                )}
-                
-                <h3 className="relative z-10 font-bold text-white text-lg drop-shadow-md">
-                  {theme.name}
-                </h3>
+                </div>
               </motion.button>
-            ))}
-          </div>
-        )}
-
-        {activeTab === 'wallpapers' && (
-          <div className="flex flex-col items-center justify-center py-20 text-center">
-            <div className="w-16 h-16 rounded-2xl bg-surface flex items-center justify-center mb-4">
-              <svg className="w-8 h-8 text-muted-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-                <circle cx="8.5" cy="8.5" r="1.5"/>
-                <polyline points="21 15 16 10 5 21"/>
-              </svg>
-            </div>
-            <h3 className="text-xl font-bold mb-2">Wallpapers Coming Soon</h3>
-            <p className="text-muted-foreground max-w-[250px]">
-              We're preparing magical new backgrounds for your chats.
-            </p>
-          </div>
-        )}
+            );
+          })}
+        </div>
       </div>
     </AppLayout>
   );

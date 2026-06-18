@@ -1,19 +1,46 @@
+import { useState, useEffect } from "react";
 import { Link } from "wouter";
-import { ArrowLeft, Smartphone, Laptop, Monitor } from "lucide-react";
+import { ArrowLeft, Smartphone, Laptop, Monitor, Trash2, Loader2 } from "lucide-react";
 import { AppLayout } from "@/components/app-layout";
 import { Button } from "@/components/ui/button";
+import { useAuth } from "@/contexts/AuthContext";
+import { listenToDevices, removeDevice, type Device } from "@/lib/firestore";
+import { useToast } from "@/hooks/use-toast";
+import { formatDistanceToNow } from "date-fns";
 
-const mockDevices = [
-  { id: 1, type: "smartphone", name: "iPhone 13 Pro", browser: "App", lastSeen: "Active now", isCurrent: true },
-  { id: 2, type: "laptop", name: "MacBook Air", browser: "Chrome", lastSeen: "2 hours ago", isCurrent: false },
-  { id: 3, type: "desktop", name: "Library PC 04", browser: "Edge", lastSeen: "Yesterday", isCurrent: false }
-];
+function DeviceIcon({ os }: { os: string }) {
+  if (os === "Android" || os === "iOS") return <Smartphone className="w-5 h-5" />;
+  if (os === "macOS") return <Laptop className="w-5 h-5" />;
+  return <Monitor className="w-5 h-5" />;
+}
 
 export default function DevicesPage() {
-  const getIcon = (type: string) => {
-    if (type === "laptop") return Laptop;
-    if (type === "desktop") return Monitor;
-    return Smartphone;
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const [devices, setDevices] = useState<Device[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [removing, setRemoving] = useState<string | null>(null);
+  const currentDeviceId = localStorage.getItem("connect_device_id");
+
+  useEffect(() => {
+    if (!user) return;
+    const unsub = listenToDevices(user.uid, (data) => {
+      setDevices(data);
+      setLoading(false);
+    });
+    return () => unsub();
+  }, [user]);
+
+  const handleRemove = async (deviceId: string) => {
+    setRemoving(deviceId);
+    try {
+      await removeDevice(deviceId);
+      toast({ title: "Device removed" });
+    } catch {
+      toast({ title: "Failed to remove", variant: "destructive" });
+    } finally {
+      setRemoving(null);
+    }
   };
 
   return (
@@ -25,57 +52,60 @@ export default function DevicesPage() {
         <h1 className="text-xl font-bold">Connected Devices</h1>
       </header>
 
-      <div className="p-4 space-y-6">
-        <p className="text-muted-foreground text-sm px-2">
-          These devices are currently logged into your Connect account. If you see a device you don't recognize, log it out immediately.
-        </p>
-
-        <div className="space-y-4">
-          <h2 className="text-sm font-semibold text-white px-2">Current Device</h2>
-          {mockDevices.filter(d => d.isCurrent).map(device => {
-            const Icon = getIcon(device.type);
-            return (
-              <div key={device.id} className="glass-card p-4 rounded-3xl flex items-center gap-4 border-primary/30">
-                <div className="w-12 h-12 rounded-full bg-primary/20 flex items-center justify-center text-primary">
-                  <Icon className="w-6 h-6" />
-                </div>
-                <div className="flex-1">
-                  <h3 className="font-bold text-white">{device.name}</h3>
-                  <p className="text-xs text-muted-foreground">{device.browser} • <span className="text-success">{device.lastSeen}</span></p>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-
-        <div className="space-y-4">
-          <h2 className="text-sm font-semibold text-white px-2 mt-6">Other Devices</h2>
-          <div className="glass-card rounded-3xl overflow-hidden flex flex-col">
-            {mockDevices.filter(d => !d.isCurrent).map((device, idx, arr) => {
-              const Icon = getIcon(device.type);
+      <div className="p-4 pb-10">
+        {loading ? (
+          <div className="flex items-center justify-center py-20">
+            <div className="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+          </div>
+        ) : devices.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-20 text-center opacity-60">
+            <Monitor className="w-12 h-12 text-muted-foreground mb-4" />
+            <h3 className="font-bold text-lg">No Devices</h3>
+            <p className="text-sm text-muted-foreground">No connected devices found.</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <p className="text-xs text-muted-foreground px-2 mb-4">
+              {devices.length} device{devices.length !== 1 ? "s" : ""} connected to your account
+            </p>
+            {devices.map((device) => {
+              const isCurrent = device.id === currentDeviceId;
               return (
-                <div key={device.id} className={`p-4 flex items-center gap-4 ${idx !== arr.length - 1 ? 'border-b border-white/5' : ''}`}>
-                  <div className="w-12 h-12 rounded-full bg-white/5 flex items-center justify-center text-muted-foreground">
-                    <Icon className="w-6 h-6" />
+                <div key={device.id} className={`glass-card p-4 rounded-3xl flex items-center gap-4 ${isCurrent ? "border border-primary/30" : ""}`}>
+                  <div className={`w-12 h-12 rounded-full flex items-center justify-center ${isCurrent ? "bg-primary/20 text-primary" : "bg-white/5 text-muted-foreground"}`}>
+                    <DeviceIcon os={device.os} />
                   </div>
-                  <div className="flex-1">
-                    <h3 className="font-medium text-white">{device.name}</h3>
-                    <p className="text-xs text-muted-foreground">{device.browser} • {device.lastSeen}</p>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-semibold text-white truncate">{device.name}</h3>
+                      {isCurrent && (
+                        <span className="flex-shrink-0 text-[10px] font-bold bg-primary/20 text-primary px-2 py-0.5 rounded-full">
+                          This device
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {device.lastActive?.toDate
+                        ? isCurrent ? "Active now" : `Last seen ${formatDistanceToNow(device.lastActive.toDate(), { addSuffix: true })}`
+                        : "Recently active"}
+                    </p>
                   </div>
-                  <button className="text-xs font-medium text-destructive px-3 py-1.5 rounded-full bg-destructive/10 hover:bg-destructive/20 transition-colors">
-                    Log out
-                  </button>
+                  {!isCurrent && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => handleRemove(device.id)}
+                      disabled={removing === device.id}
+                      className="w-10 h-10 rounded-full hover:bg-destructive/20 hover:text-destructive transition-colors flex-shrink-0"
+                    >
+                      {removing === device.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                    </Button>
+                  )}
                 </div>
               );
             })}
           </div>
-        </div>
-
-        <div className="pt-8">
-          <Button variant="outline" className="w-full h-14 rounded-2xl border-destructive/30 text-destructive hover:bg-destructive/10 bg-transparent">
-            Log Out of All Other Devices
-          </Button>
-        </div>
+        )}
       </div>
     </AppLayout>
   );

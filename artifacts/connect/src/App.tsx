@@ -1,10 +1,11 @@
-import { Switch, Route, Router as WouterRouter } from "wouter";
+import { useEffect } from "react";
+import { Switch, Route, Router as WouterRouter, useLocation } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import NotFound from "@/pages/not-found";
 
-// Import all pages (to be created)
 import LandingPage from "@/pages/landing";
 import OnboardingPage from "@/pages/onboarding";
 import SignupPage from "@/pages/signup";
@@ -20,16 +21,36 @@ import AutoLogoutPage from "@/pages/auto-logout";
 import ConnectionsPage from "@/pages/connections";
 import AlertsPage from "@/pages/alerts";
 import ProfilePage from "@/pages/profile";
-import AlertPage from "./pages/alerts";
+import InvitePage from "@/pages/invite";
 
 const queryClient = new QueryClient({
   defaultOptions: {
-    queries: {
-      retry: 1,
-      refetchOnWindowFocus: false,
-    },
+    queries: { retry: 1, refetchOnWindowFocus: false },
   },
 });
+
+function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
+  const { user, loading } = useAuth();
+  const [, setLocation] = useLocation();
+
+  useEffect(() => {
+    if (!loading && !user) {
+      setLocation("/onboarding");
+    }
+  }, [loading, user, setLocation]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-background">
+        <div className="w-10 h-10 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+      </div>
+    );
+  }
+
+  if (!user) return null;
+
+  return <Component />;
+}
 
 function Router() {
   return (
@@ -39,19 +60,39 @@ function Router() {
       <Route path="/signup" component={SignupPage} />
       <Route path="/verify" component={VerifyPage} />
       <Route path="/login" component={LoginPage} />
-      
-      {/* Main app shell routes */}
-      <Route path="/chats" component={ChatsPage} />
-      <Route path="/chats/:id" component={ChatDetailPage} />
-      <Route path="/send-priority" component={SendPriorityPage} />
-      <Route path="/themes" component={ThemesPage} />
-      <Route path="/settings" component={SettingsPage} />
-      <Route path="/settings/devices" component={DevicesPage} />
-      <Route path="/settings/auto-logout" component={AutoLogoutPage} />
-      <Route path="/connections" component={ConnectionsPage} />
-      <Route path="/alerts" component={AlertPage} />
-      <Route path="/profile" component={ProfilePage} />
-      
+      <Route path="/invite/:username" component={InvitePage} />
+
+      <Route path="/chats">
+        {() => <ProtectedRoute component={ChatsPage} />}
+      </Route>
+      <Route path="/chats/:id">
+        {() => <ProtectedRoute component={ChatDetailPage} />}
+      </Route>
+      <Route path="/send-priority">
+        {() => <ProtectedRoute component={SendPriorityPage} />}
+      </Route>
+      <Route path="/themes">
+        {() => <ProtectedRoute component={ThemesPage} />}
+      </Route>
+      <Route path="/settings">
+        {() => <ProtectedRoute component={SettingsPage} />}
+      </Route>
+      <Route path="/settings/devices">
+        {() => <ProtectedRoute component={DevicesPage} />}
+      </Route>
+      <Route path="/settings/auto-logout">
+        {() => <ProtectedRoute component={AutoLogoutPage} />}
+      </Route>
+      <Route path="/connections">
+        {() => <ProtectedRoute component={ConnectionsPage} />}
+      </Route>
+      <Route path="/alerts">
+        {() => <ProtectedRoute component={AlertsPage} />}
+      </Route>
+      <Route path="/profile">
+        {() => <ProtectedRoute component={ProfilePage} />}
+      </Route>
+
       <Route component={NotFound} />
     </Switch>
   );
@@ -61,10 +102,12 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-          <Router />
-        </WouterRouter>
-        <Toaster />
+        <AuthProvider>
+          <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+            <Router />
+          </WouterRouter>
+          <Toaster />
+        </AuthProvider>
       </TooltipProvider>
     </QueryClientProvider>
   );

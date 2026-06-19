@@ -168,7 +168,7 @@
 }
 
 .glowing-primary {
-  @apply shadow-[0_0_20px_rgba(124,77,255,0.4)];
+  box-shadow: 0 0 20px var(--glow-primary, rgba(124,77,255,0.4));
 }
 
 .glowing-danger {

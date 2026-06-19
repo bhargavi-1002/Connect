@@ -1,12 +1,13 @@
 import { useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
-import { Search, Plus, Sparkles, UserPlus, ScanLine, Link as LinkIcon } from "lucide-react";
+import { Search, Plus, UserPlus, ScanLine, Link as LinkIcon } from "lucide-react";
 import { AppLayout } from "@/components/app-layout";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { motion } from "framer-motion";
 import { useAuth } from "@/contexts/AuthContext";
 import { listenToChats, markChatRead, generateInviteLink, type Chat } from "@/lib/firestore";
+import { Mascot } from "@/components/mascot";
 import { formatDistanceToNow } from "date-fns";
 
 const priorityDot: Record<string, string> = {
@@ -22,9 +23,7 @@ function formatTime(ts: { toDate?: () => Date } | null | undefined) {
   try {
     const date = ts.toDate ? ts.toDate() : new Date(ts as unknown as string);
     return formatDistanceToNow(date, { addSuffix: false });
-  } catch {
-    return "";
-  }
+  } catch { return ""; }
 }
 
 export default function ChatsPage() {
@@ -46,50 +45,57 @@ export default function ChatsPage() {
   }, [user]);
 
   const filtered = chats.filter(chat => {
+    const otherUid = chat.participants.find(uid => uid !== user?.uid) || "";
     const name = chat.isGroup
-      ? chat.groupName || "Group"
-      : Object.entries(chat.participantNames).find(([uid]) => uid !== user?.uid)?.[1] || "Unknown";
+      ? (chat.groupName || "Group")
+      : (chat.participantNames[otherUid] || "Unknown");
     const matchesSearch = name.toLowerCase().includes(search.toLowerCase());
-    if (activeTab === "important") {
-      return matchesSearch && (chat.lastMessage.startsWith("[important]") || chat.lastMessage.startsWith("[urgent]"));
-    }
+    if (activeTab === "important") return matchesSearch && (chat.lastMessage.includes("[important]") || chat.lastMessage.includes("[urgent]"));
     if (activeTab === "groups") return matchesSearch && chat.isGroup;
-    if (activeTab === "emergency") return matchesSearch && chat.lastMessage.startsWith("[emergency]");
+    if (activeTab === "emergency") return matchesSearch && chat.lastMessage.includes("[emergency]");
     return matchesSearch;
   });
 
   const handleChatClick = async (chat: Chat) => {
-    if (user && chat.unreadCount[user.uid] > 0) {
-      await markChatRead(chat.id, user.uid);
-    }
+    if (user && (chat.unreadCount[user.uid] || 0) > 0) await markChatRead(chat.id, user.uid);
     setLocation(`/chats/${chat.id}`);
   };
 
   const copyInviteLink = () => {
-    if (profile) {
-      const link = generateInviteLink(profile.username);
-      navigator.clipboard.writeText(link);
-    }
+    if (profile) navigator.clipboard.writeText(generateInviteLink(profile.username));
   };
 
   return (
     <AppLayout showBottomNav={true}>
-      <header className="pt-12 pb-4 px-6 sticky top-0 z-40 bg-background/80 backdrop-blur-xl border-b border-white/5">
-        <div className="flex justify-between items-center mb-6">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-primary to-secondary flex items-center justify-center glowing-primary">
-              <Sparkles className="w-4 h-4 text-white" />
+      <header className="pt-12 pb-4 px-5 sticky top-0 z-40 bg-background/80 backdrop-blur-xl border-b border-white/5">
+        <div className="flex justify-between items-center mb-5">
+          <div className="flex items-center gap-3">
+            {/* Mascot in header — floating penguin peeking */}
+            <div className="relative w-9 h-9">
+              <div className="absolute inset-0 bg-primary/30 blur-[10px] rounded-full" />
+              <img
+                src="/signup-wave.png"
+                alt=""
+                className="relative z-10 w-full h-full object-contain drop-shadow-lg"
+                onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+              />
             </div>
-            <span className="text-xl font-bold tracking-tight">Connect</span>
+            <div>
+              <span className="text-xl font-bold tracking-tight">Connect</span>
+              {profile && <p className="text-xs text-muted-foreground">@{profile.username}</p>}
+            </div>
           </div>
           <Link href="/connections">
-            <button className="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-white glowing-primary">
+            <motion.button
+              whileTap={{ scale: 0.9 }}
+              className="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-white shadow-[0_0_14px_var(--glow-primary,rgba(124,77,255,0.4))]"
+            >
               <Plus className="w-5 h-5" />
-            </button>
+            </motion.button>
           </Link>
         </div>
 
-        <div className="relative mb-6">
+        <div className="relative mb-4">
           <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
           <Input
             placeholder="Search connections..."
@@ -99,12 +105,16 @@ export default function ChatsPage() {
           />
         </div>
 
-        <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-none">
+        <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none">
           {tabs.map(tab => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab.toLowerCase())}
-              className={`px-5 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all ${activeTab === tab.toLowerCase() ? "bg-white/10 text-white" : "text-muted-foreground hover:text-white hover:bg-white/5"}`}
+              className={`px-5 py-2 rounded-full text-sm font-medium whitespace-nowrap transition-all ${
+                activeTab === tab.toLowerCase()
+                  ? "bg-primary/20 text-primary border border-primary/30"
+                  : "text-muted-foreground hover:text-white hover:bg-white/5"
+              }`}
             >
               {tab}
             </button>
@@ -112,7 +122,7 @@ export default function ChatsPage() {
         </div>
       </header>
 
-      <div className="flex-1 overflow-y-auto px-4 py-4 pb-20">
+      <div className="flex-1 overflow-y-auto px-4 py-4 pb-24">
         {loading ? (
           <div className="flex items-center justify-center py-20">
             <div className="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
@@ -121,48 +131,53 @@ export default function ChatsPage() {
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="flex flex-col items-center justify-center py-16 text-center px-6"
+            className="flex flex-col items-center justify-center py-10 text-center px-6"
           >
-            <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center mb-6">
-              <Sparkles className="w-10 h-10 text-primary/60" />
-            </div>
-            <h3 className="text-xl font-bold mb-2">No Connections Yet</h3>
-            <p className="text-muted-foreground text-[15px] leading-relaxed mb-8">
-              Search by username, scan a QR code, or share your invite link to connect with family and friends.
+            {/* Character — integrated, floating, glowing */}
+            <Mascot
+              src="/onboarding-cloud.png"
+              size="w-48"
+              glowColor="bg-primary/25"
+              floatDuration={5}
+              className="mb-2"
+            />
+            <h3 className="text-xl font-bold mb-2">No chats yet</h3>
+            <p className="text-muted-foreground text-sm leading-relaxed mb-8">
+              {search
+                ? `No conversations matching "${search}"`
+                : "Search by username, scan a QR, or share your invite link to connect with your family."}
             </p>
-            <div className="flex flex-col gap-3 w-full max-w-xs">
-              <Link href="/connections">
-                <Button className="w-full h-12 rounded-2xl bg-gradient-to-r from-primary to-secondary text-white font-semibold glowing-primary border-none">
-                  <UserPlus className="w-4 h-4 mr-2" /> Search Username
+            {!search && (
+              <div className="flex flex-col gap-3 w-full max-w-xs">
+                <Link href="/connections">
+                  <Button className="w-full h-12 rounded-2xl bg-gradient-to-r from-primary to-secondary text-white font-semibold shadow-[0_0_16px_var(--glow-primary,rgba(124,77,255,0.4))] border-none">
+                    <UserPlus className="w-4 h-4 mr-2" /> Search Username
+                  </Button>
+                </Link>
+                <Link href="/connections">
+                  <Button variant="outline" className="w-full h-12 rounded-2xl glass-card border-white/10 hover:bg-white/5 font-medium">
+                    <ScanLine className="w-4 h-4 mr-2" /> Scan QR Code
+                  </Button>
+                </Link>
+                <Button
+                  variant="outline"
+                  onClick={copyInviteLink}
+                  className="w-full h-12 rounded-2xl glass-card border-white/10 hover:bg-white/5 font-medium"
+                >
+                  <LinkIcon className="w-4 h-4 mr-2" /> Share Invite Link
                 </Button>
-              </Link>
-              <Link href="/connections">
-                <Button variant="outline" className="w-full h-12 rounded-2xl glass-card border-white/10 hover:bg-white/5 font-medium">
-                  <ScanLine className="w-4 h-4 mr-2" /> Scan QR Code
-                </Button>
-              </Link>
-              <Button
-                variant="outline"
-                onClick={copyInviteLink}
-                className="w-full h-12 rounded-2xl glass-card border-white/10 hover:bg-white/5 font-medium"
-              >
-                <LinkIcon className="w-4 h-4 mr-2" /> Share Invite Link
-              </Button>
-            </div>
+              </div>
+            )}
           </motion.div>
         ) : (
           <div className="space-y-3">
             {filtered.map((chat, i) => {
               const otherUid = chat.participants.find(uid => uid !== user?.uid) || "";
-              const name = chat.isGroup
-                ? chat.groupName || "Group"
-                : chat.participantNames[otherUid] || "Unknown";
-              const photo = chat.isGroup
-                ? chat.groupPhoto
-                : chat.participantPhotos[otherUid];
+              const name = chat.isGroup ? (chat.groupName || "Group") : (chat.participantNames[otherUid] || "Unknown");
+              const photo = chat.isGroup ? chat.groupPhoto : chat.participantPhotos[otherUid];
               const unread = user ? (chat.unreadCount[user.uid] || 0) : 0;
               const lastPriority = chat.lastMessage.match(/^\[(\w+)\]/)?.[1] || "normal";
-              const displayMessage = chat.lastMessage.replace(/^\[\w+\]\s*/, "");
+              const displayMessage = chat.lastMessage.replace(/^\[\w+\]\s*/, "") || "Start a conversation";
 
               return (
                 <motion.div
@@ -171,7 +186,7 @@ export default function ChatsPage() {
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: i * 0.04 }}
                   onClick={() => handleChatClick(chat)}
-                  className="p-4 rounded-3xl glass-card flex items-center gap-4 hover:bg-white/[0.08] transition-colors cursor-pointer"
+                  className="p-4 rounded-3xl glass-card flex items-center gap-4 hover:bg-white/[0.08] active:scale-[0.98] transition-all cursor-pointer"
                 >
                   <div className="relative flex-shrink-0">
                     {photo ? (
@@ -181,10 +196,13 @@ export default function ChatsPage() {
                         {name.charAt(0).toUpperCase()}
                       </div>
                     )}
+                    {unread > 0 && (
+                      <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-primary border-2 border-background" />
+                    )}
                   </div>
 
                   <div className="flex-1 min-w-0">
-                    <div className="flex justify-between items-center mb-1">
+                    <div className="flex justify-between items-center mb-0.5">
                       <h3 className="font-semibold text-[17px] truncate">{name}</h3>
                       <span className={`text-xs whitespace-nowrap ml-2 ${unread ? "text-primary font-medium" : "text-muted-foreground"}`}>
                         {formatTime(chat.lastMessageAt)}
@@ -195,13 +213,13 @@ export default function ChatsPage() {
                         <span className={`w-2 h-2 rounded-full flex-shrink-0 ${priorityDot[lastPriority]}`} />
                       )}
                       <p className={`text-[14px] truncate ${unread ? "text-white/90 font-medium" : "text-muted-foreground"}`}>
-                        {displayMessage || "Start a conversation"}
+                        {displayMessage}
                       </p>
                     </div>
                   </div>
 
                   {unread > 0 && (
-                    <div className="w-6 h-6 rounded-full bg-primary flex items-center justify-center text-[11px] font-bold text-white shadow-[0_0_10px_rgba(124,77,255,0.4)] flex-shrink-0">
+                    <div className="w-6 h-6 rounded-full bg-primary flex items-center justify-center text-[11px] font-bold text-white shadow-[0_0_10px_var(--glow-primary,rgba(124,77,255,0.4))] flex-shrink-0">
                       {unread}
                     </div>
                   )}

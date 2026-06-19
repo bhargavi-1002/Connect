@@ -193,7 +193,7 @@ export function applyTheme(themeId: string) {
   root.style.setProperty("--glow-primary", `hsl(${theme.vars.primary} / 0.4)`);
 }
 
-export function getWallpaperStyle(wallpaperId: string, bgSize?: string): React.CSSProperties {
+export function getWallpaperStyle(wallpaperId: string, bgSize?: string): import("react").CSSProperties {
   const wp = WALLPAPERS.find(w => w.id === wallpaperId);
   if (!wp || !wp.preview) return {};
   return {

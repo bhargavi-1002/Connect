@@ -9,14 +9,15 @@ import {
   setTyping, listenToTyping, markMessageRead,
   type Chat, type Message,
 } from "@/lib/firestore";
+import { getWallpaperStyle } from "@/lib/themes";
 import { formatDistanceToNow } from "date-fns";
 
 const priorityConfig: Record<string, { label: string; gradient: string; badge: string }> = {
-  normal: { label: "", gradient: "from-primary to-secondary", badge: "" },
-  good_news: { label: "Good News", gradient: "from-emerald-500 to-teal-500", badge: "bg-emerald-500/20 text-emerald-400" },
-  important: { label: "Important", gradient: "from-amber-500 to-orange-500", badge: "bg-warning/20 text-warning" },
-  urgent: { label: "Urgent", gradient: "from-orange-600 to-red-500", badge: "bg-orange-500/20 text-orange-400" },
-  emergency: { label: "Emergency", gradient: "from-destructive to-rose-700", badge: "bg-destructive/20 text-destructive" },
+  normal:    { label: "",           gradient: "from-primary to-secondary",         badge: "" },
+  good_news: { label: "Good News",  gradient: "from-emerald-500 to-teal-500",      badge: "bg-emerald-500/20 text-emerald-400" },
+  important: { label: "Important",  gradient: "from-amber-500 to-orange-500",      badge: "bg-warning/20 text-warning" },
+  urgent:    { label: "Urgent",     gradient: "from-orange-600 to-red-500",         badge: "bg-orange-500/20 text-orange-400" },
+  emergency: { label: "Emergency",  gradient: "from-destructive to-rose-700",      badge: "bg-destructive/20 text-destructive" },
 };
 
 export default function ChatDetailPage() {
@@ -45,9 +46,7 @@ export default function ChatDetailPage() {
       setMessages(msgs);
       markChatRead(chatId, user.uid);
       msgs.forEach(msg => {
-        if (!msg.readBy.includes(user.uid)) {
-          markMessageRead(chatId, msg.id, user.uid);
-        }
+        if (!msg.readBy.includes(user.uid)) markMessageRead(chatId, msg.id, user.uid);
       });
     });
     return () => unsub();
@@ -68,9 +67,7 @@ export default function ChatDetailPage() {
     if (!user || !chatId) return;
     setTyping(chatId, user.uid, true);
     if (typingTimer.current) clearTimeout(typingTimer.current);
-    typingTimer.current = setTimeout(() => {
-      setTyping(chatId, user.uid, false);
-    }, 2000);
+    typingTimer.current = setTimeout(() => setTyping(chatId, user.uid, false), 2000);
   }, [chatId, user]);
 
   const handleSend = async () => {
@@ -84,9 +81,12 @@ export default function ChatDetailPage() {
   };
 
   const otherUid = chat?.participants.find(uid => uid !== user?.uid) || "";
-  const otherName = chat?.isGroup ? chat.groupName || "Group" : (chat?.participantNames[otherUid] || "Unknown");
+  const otherName = chat?.isGroup ? (chat.groupName || "Group") : (chat?.participantNames[otherUid] || "Unknown");
   const otherPhoto = chat?.isGroup ? chat.groupPhoto : chat?.participantPhotos[otherUid];
   const otherTyping = typingUids.length > 0;
+
+  // Apply selected wallpaper to the messages area
+  const wallpaperStyle = getWallpaperStyle(profile?.chatWallpaper || "none");
 
   if (loading) {
     return (
@@ -100,27 +100,26 @@ export default function ChatDetailPage() {
 
   return (
     <AppLayout showBottomNav={false}>
+      {/* Header */}
       <header className="sticky top-0 z-40 bg-surface/90 backdrop-blur-xl border-b border-white/5 px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Link href="/chats" className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors">
             <ArrowLeft className="w-5 h-5 text-white" />
           </Link>
           <div className="flex items-center gap-3">
-            <div className="relative">
-              {otherPhoto ? (
-                <img src={otherPhoto} alt={otherName} className="w-10 h-10 rounded-full object-cover border border-white/10" />
-              ) : (
-                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-white font-bold">
-                  {otherName.charAt(0).toUpperCase()}
-                </div>
-              )}
-            </div>
+            {otherPhoto ? (
+              <img src={otherPhoto} alt={otherName} className="w-10 h-10 rounded-full object-cover border border-white/10" />
+            ) : (
+              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-white font-bold">
+                {otherName.charAt(0).toUpperCase()}
+              </div>
+            )}
             <div>
               <h2 className="font-semibold text-[16px] leading-tight text-white">{otherName}</h2>
               {otherTyping ? (
                 <span className="text-xs text-primary font-medium">typing…</span>
               ) : (
-                <span className="text-xs text-muted-foreground">tap to view profile</span>
+                <span className="text-xs text-muted-foreground">connected</span>
               )}
             </div>
           </div>
@@ -138,12 +137,31 @@ export default function ChatDetailPage() {
         </div>
       </header>
 
-      <div className="flex-1 overflow-y-auto px-4 py-6 space-y-4">
+      {/* Messages — wallpaper applied here */}
+      <div
+        className="flex-1 overflow-y-auto px-4 py-6 space-y-4"
+        style={wallpaperStyle}
+      >
         {messages.length === 0 && (
-          <div className="text-center py-10 text-muted-foreground text-sm">
-            No messages yet. Say hello!
-          </div>
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="flex flex-col items-center justify-center py-16 text-center"
+          >
+            <div className="relative w-32 h-32 mb-4">
+              <div className="absolute inset-0 bg-primary/20 blur-[30px] rounded-full" />
+              <img
+                src="/signup-wave.png"
+                alt="Say hello"
+                className="relative z-10 w-full h-full object-contain drop-shadow-2xl"
+                onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+              />
+            </div>
+            <p className="text-muted-foreground text-sm">You're connected! 🎉</p>
+            <p className="text-muted-foreground/60 text-xs mt-1">Say hello to start your conversation</p>
+          </motion.div>
         )}
+
         {messages.map((msg, index) => {
           const isMine = msg.senderId === user?.uid;
           const showAvatar = !isMine && (index === 0 || messages[index - 1].senderId !== msg.senderId);
@@ -159,13 +177,13 @@ export default function ChatDetailPage() {
             >
               {!isMine && (
                 <div className="w-8 flex-shrink-0 flex items-end">
-                  {showAvatar && otherPhoto ? (
+                  {showAvatar && (otherPhoto ? (
                     <img src={otherPhoto} alt="" className="w-8 h-8 rounded-full" />
-                  ) : showAvatar ? (
+                  ) : (
                     <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-white text-xs font-bold">
                       {otherName.charAt(0).toUpperCase()}
                     </div>
-                  ) : null}
+                  ))}
                 </div>
               )}
 
@@ -176,10 +194,10 @@ export default function ChatDetailPage() {
                     {pConfig.label}
                   </div>
                 )}
-                <div className={`px-4 py-3 text-[15px] ${
+                <div className={`px-4 py-3 text-[15px] leading-relaxed ${
                   isMine
-                    ? `bg-gradient-to-br ${pConfig.gradient} text-white rounded-2xl rounded-br-sm`
-                    : "bg-card text-white rounded-2xl rounded-bl-sm border border-white/5"
+                    ? `bg-gradient-to-br ${pConfig.gradient} text-white rounded-2xl rounded-br-sm shadow-lg`
+                    : "bg-card/80 backdrop-blur-sm text-white rounded-2xl rounded-bl-sm border border-white/5"
                 }`}>
                   {msg.text}
                 </div>
@@ -206,7 +224,7 @@ export default function ChatDetailPage() {
               exit={{ opacity: 0 }}
               className="flex items-center gap-2 px-4"
             >
-              <div className="bg-card border border-white/5 rounded-2xl rounded-bl-sm px-4 py-3 flex gap-1">
+              <div className="bg-card/80 backdrop-blur-sm border border-white/5 rounded-2xl rounded-bl-sm px-4 py-3 flex gap-1">
                 {[0, 1, 2].map(i => (
                   <span key={i} className="w-2 h-2 rounded-full bg-muted-foreground animate-bounce" style={{ animationDelay: `${i * 0.15}s` }} />
                 ))}
@@ -217,14 +235,15 @@ export default function ChatDetailPage() {
         <div ref={messagesEndRef} />
       </div>
 
-      <div className="bg-surface border-t border-white/5 p-4 pb-safe flex flex-col gap-2 relative">
+      {/* Input area */}
+      <div className="bg-surface/95 backdrop-blur-xl border-t border-white/5 p-4 flex flex-col gap-2">
         <AnimatePresence>
           {showPriority && (
             <motion.div
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 10 }}
-              className="flex gap-2 overflow-x-auto pb-2"
+              className="flex gap-2 overflow-x-auto pb-1"
             >
               {(Object.entries(priorityConfig) as [Message["priority"], typeof priorityConfig[string]][]).map(([key, cfg]) => (
                 <button
@@ -246,7 +265,11 @@ export default function ChatDetailPage() {
         <div className="flex items-end gap-2">
           <button
             onClick={() => setShowPriority(v => !v)}
-            className="w-10 h-10 flex-shrink-0 rounded-full flex items-center justify-center text-muted-foreground hover:text-white transition-colors"
+            className={`w-10 h-10 flex-shrink-0 rounded-full flex items-center justify-center transition-colors ${
+              selectedPriority !== "normal"
+                ? `bg-gradient-to-br ${priorityConfig[selectedPriority]?.gradient} text-white`
+                : "text-muted-foreground hover:text-white"
+            }`}
           >
             <Paperclip className="w-5 h-5" />
           </button>
@@ -261,7 +284,7 @@ export default function ChatDetailPage() {
               value={inputText}
               onChange={(e) => handleInputChange(e.target.value)}
               placeholder="Message..."
-              className="flex-1 bg-transparent border-none text-[15px] text-white focus:outline-none resize-none px-3 py-2 max-h-[100px] scrollbar-none"
+              className="flex-1 bg-transparent border-none text-[15px] text-white focus:outline-none resize-none px-3 py-2 max-h-[100px] scrollbar-none placeholder:text-muted-foreground/60"
               rows={1}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); }
@@ -270,12 +293,13 @@ export default function ChatDetailPage() {
           </div>
 
           {inputText.trim() ? (
-            <button
+            <motion.button
               onClick={handleSend}
-              className="w-11 h-11 flex-shrink-0 rounded-full bg-primary flex items-center justify-center text-white glowing-primary transition-all"
+              whileTap={{ scale: 0.9 }}
+              className="w-11 h-11 flex-shrink-0 rounded-full bg-primary flex items-center justify-center text-white shadow-[0_0_16px_var(--glow-primary,rgba(124,77,255,0.4))]"
             >
               <Send className="w-5 h-5 ml-0.5" />
-            </button>
+            </motion.button>
           ) : (
             <button className="w-11 h-11 flex-shrink-0 rounded-full bg-white/10 flex items-center justify-center text-white transition-all">
               <Mic className="w-5 h-5" />

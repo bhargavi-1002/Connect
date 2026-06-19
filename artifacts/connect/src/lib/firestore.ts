@@ -233,7 +233,7 @@ export async function respondToRequest(
       participantNames: { [fromUid]: from.displayName, [toUid]: to.displayName },
       participantPhotos: { [fromUid]: from.photoURL ?? null, [toUid]: to.photoURL ?? null },
       lastMessage: "",
-      lastMessageAt: null,
+      lastMessageAt: serverTimestamp(), // Never null — null would hide chats from orderBy queries
       lastMessageSenderId: "",
       unreadCount: { [fromUid]: 0, [toUid]: 0 },
       isGroup: false,
@@ -248,15 +248,23 @@ export async function respondToRequest(
 
 export function listenToChats(uid: string, cb: (chats: Chat[]) => void) {
   try {
+    // No orderBy — avoids Firestore composite index requirement and null-field exclusion.
+    // Docs where lastMessageAt=null (new chats) would be silently dropped by orderBy.
+    // Sort client-side instead so every chat is always visible.
     const q = query(
       collection(db, "chats"),
-      where("participants", "array-contains", uid),
-      orderBy("lastMessageAt", "desc")
+      where("participants", "array-contains", uid)
     );
-    return onSnapshot(q,
-      snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Chat)),
-      () => cb([])
-    );
+    return onSnapshot(q, snap => {
+      const chats = snap.docs
+        .map(d => ({ id: d.id, ...d.data() }) as Chat)
+        .sort((a, b) => {
+          const aMs = a.lastMessageAt?.toDate?.()?.getTime() ?? a.createdAt?.toDate?.()?.getTime() ?? 0;
+          const bMs = b.lastMessageAt?.toDate?.()?.getTime() ?? b.createdAt?.toDate?.()?.getTime() ?? 0;
+          return bMs - aMs;
+        });
+      cb(chats);
+    }, () => cb([]));
   } catch {
     cb([]);
     return () => {};

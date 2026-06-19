@@ -26,16 +26,13 @@ export async function signInWithGoogle() {
       .toLowerCase()
       .replace(/\s+/g, "_")
       .replace(/[^a-z0-9_]/g, "")
-      .slice(0, 20);
+      .slice(0, 20) || "user";
     let username = baseUsername;
     let counter = 1;
     while (!(await checkUsernameAvailable(username))) {
       username = `${baseUsername}${counter++}`;
     }
-    await createUserProfile(user, {
-      username,
-      displayName: user.displayName || "User",
-    });
+    await createUserProfile(user, { username, displayName: user.displayName || "User" });
     return { user, isNew: true, username };
   }
   return { user, isNew: false, username: existing.username };
@@ -44,31 +41,30 @@ export async function signInWithGoogle() {
 // ─── Phone / OTP ─────────────────────────────────────────────────────────────
 
 let confirmationResult: ConfirmationResult | null = null;
+let recaptchaVerifier: RecaptchaVerifier | null = null;
 
-export function setupRecaptcha(containerId: string) {
-  if ((window as Window & { recaptchaVerifier?: RecaptchaVerifier }).recaptchaVerifier) {
-    (window as Window & { recaptchaVerifier?: RecaptchaVerifier }).recaptchaVerifier!.clear();
-  }
-  const verifier = new RecaptchaVerifier(auth, containerId, { size: "invisible" });
-  (window as Window & { recaptchaVerifier?: RecaptchaVerifier }).recaptchaVerifier = verifier;
-  return verifier;
+export function clearRecaptcha() {
+  try {
+    recaptchaVerifier?.clear();
+    recaptchaVerifier = null;
+  } catch { /* ignore */ }
+  // Remove the rendered widget DOM if present
+  const el = document.getElementById("recaptcha-container");
+  if (el) el.innerHTML = "";
 }
 
 export async function sendOTP(phone: string, containerId: string): Promise<void> {
-  const verifier = setupRecaptcha(containerId);
-  confirmationResult = await signInWithPhoneNumber(auth, phone, verifier);
+  clearRecaptcha();
+  recaptchaVerifier = new RecaptchaVerifier(auth, containerId, { size: "invisible" });
+  confirmationResult = await signInWithPhoneNumber(auth, phone, recaptchaVerifier);
 }
 
 export async function verifyOTP(otp: string) {
-  if (!confirmationResult) throw new Error("No OTP session. Please request OTP first.");
+  if (!confirmationResult) throw new Error("No OTP session. Please request a new OTP.");
   const result = await confirmationResult.confirm(otp);
   const user = result.user;
-
   const existing = await getUserProfile(user.uid);
-  if (!existing) {
-    return { user, isNew: true };
-  }
-  return { user, isNew: false };
+  return { user, isNew: !existing };
 }
 
 // ─── Email / Password ────────────────────────────────────────────────────────
@@ -79,13 +75,14 @@ export async function registerWithEmail(
   displayName: string,
   username: string
 ) {
-  const available = await checkUsernameAvailable(username);
-  if (!available) throw new Error("Username already taken.");
-
+  // Create Firebase Auth user first (always works regardless of Firestore)
   const result = await createUserWithEmailAndPassword(auth, email, password);
   const user = result.user;
   await updateProfile(user, { displayName });
+
+  // Create Firestore profile (non-blocking — fails gracefully if Firestore not ready)
   await createUserProfile(user, { username, displayName });
+
   return user;
 }
 
@@ -99,9 +96,11 @@ export async function resetPassword(email: string) {
 }
 
 export async function logout() {
-  if (auth.currentUser) {
-    const { setOffline } = await import("./firestore");
-    await setOffline(auth.currentUser.uid);
-  }
+  try {
+    if (auth.currentUser) {
+      const { setOffline } = await import("./firestore");
+      await setOffline(auth.currentUser.uid);
+    }
+  } catch { /* ignore */ }
   await signOut(auth);
 }

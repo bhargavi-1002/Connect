@@ -1,7 +1,10 @@
 import { createContext, useContext, useEffect, useState, useRef } from "react";
 import { onAuthStateChanged, type User } from "firebase/auth";
 import { auth } from "@/lib/firebase";
-import { getUserProfile, setOnline, setOffline, registerDevice, updateUserProfile, type UserProfile } from "@/lib/firestore";
+import {
+  getUserProfile, setOnline, setOffline, registerDevice,
+  type UserProfile,
+} from "@/lib/firestore";
 import { logout } from "@/lib/auth";
 
 interface AuthContextValue {
@@ -32,17 +35,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   );
 
   const refreshProfile = async () => {
-    if (auth.currentUser) {
+    if (!auth.currentUser) return;
+    try {
       const p = await getUserProfile(auth.currentUser.uid);
       setProfile(p);
-    }
+    } catch { /* ignore */ }
   };
 
   const resetAutoLogout = (minutes: number) => {
     if (autoLogoutTimer.current) clearTimeout(autoLogoutTimer.current);
     if (minutes <= 0) return;
     autoLogoutTimer.current = setTimeout(() => {
-      logout();
+      logout().catch(() => {});
     }, minutes * 60 * 1000);
   };
 
@@ -50,8 +54,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const unsubscribe = onAuthStateChanged(auth, async (u) => {
       setUser(u);
       if (u) {
-        await setOnline(u.uid);
-        await registerDevice(u.uid, deviceId.current);
+        // All Firestore calls are wrapped — they never throw
+        setOnline(u.uid);
+        registerDevice(u.uid, deviceId.current);
         const p = await getUserProfile(u.uid);
         setProfile(p);
         if (p) resetAutoLogout(p.autoLogoutMinutes);

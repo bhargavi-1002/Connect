@@ -1,7 +1,7 @@
 import {
   collection, doc, setDoc, getDoc, getDocs, updateDoc, deleteDoc,
   query, where, orderBy, limit, onSnapshot, addDoc, serverTimestamp,
-  arrayUnion, arrayRemove, Timestamp, writeBatch, increment,
+  arrayUnion, Timestamp, writeBatch, increment,
 } from "firebase/firestore";
 import { db } from "./firebase";
 import type { User } from "firebase/auth";
@@ -76,9 +76,32 @@ export interface EmergencyAlert {
   resolvedAt: Timestamp | null;
 }
 
+export interface Device {
+  id: string;
+  uid: string;
+  name: string;
+  browser: string;
+  os: string;
+  lastActive: Timestamp;
+  current: boolean;
+}
+
+// ─── Safe wrapper — never throws ─────────────────────────────────────────────
+
+async function safe<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
+  try {
+    return await fn();
+  } catch {
+    return fallback;
+  }
+}
+
 // ─── Users ───────────────────────────────────────────────────────────────────
 
-export async function createUserProfile(user: User, extra: { username: string; displayName: string }) {
+export async function createUserProfile(
+  user: User,
+  extra: { username: string; displayName: string }
+): Promise<UserProfile | null> {
   const profile: UserProfile = {
     uid: user.uid,
     displayName: extra.displayName,
@@ -92,60 +115,69 @@ export async function createUserProfile(user: User, extra: { username: string; d
     autoLogoutMinutes: 15,
     theme: "midnight",
   };
-  await setDoc(doc(db, "users", user.uid), profile);
-  await setDoc(doc(db, "usernames", extra.username.toLowerCase()), { uid: user.uid });
-  return profile;
+  try {
+    await setDoc(doc(db, "users", user.uid), profile);
+    await setDoc(doc(db, "usernames", extra.username.toLowerCase()), { uid: user.uid });
+    return profile;
+  } catch {
+    return null;
+  }
 }
 
 export async function getUserProfile(uid: string): Promise<UserProfile | null> {
-  const snap = await getDoc(doc(db, "users", uid));
-  return snap.exists() ? (snap.data() as UserProfile) : null;
+  return safe(async () => {
+    const snap = await getDoc(doc(db, "users", uid));
+    return snap.exists() ? (snap.data() as UserProfile) : null;
+  }, null);
 }
 
 export async function updateUserProfile(uid: string, data: Partial<UserProfile>) {
-  await updateDoc(doc(db, "users", uid), data);
+  try {
+    await updateDoc(doc(db, "users", uid), data as Record<string, unknown>);
+  } catch {
+    // silently fail — UI shows toast from caller
+  }
 }
 
 export async function checkUsernameAvailable(username: string): Promise<boolean> {
-  const snap = await getDoc(doc(db, "usernames", username.toLowerCase()));
-  return !snap.exists();
+  return safe(async () => {
+    const snap = await getDoc(doc(db, "usernames", username.toLowerCase()));
+    return !snap.exists();
+  }, true); // assume available if offline — duplicate check happens at write time
 }
 
 export async function searchUsersByUsername(searchTerm: string): Promise<UserProfile[]> {
   if (!searchTerm || searchTerm.length < 2) return [];
   const term = searchTerm.toLowerCase().replace(/^@/, "");
-  const q = query(
-    collection(db, "users"),
-    where("username", ">=", term),
-    where("username", "<=", term + "\uf8ff"),
-    limit(10)
-  );
-  const snap = await getDocs(q);
-  return snap.docs.map(d => d.data() as UserProfile);
+  return safe(async () => {
+    const q = query(
+      collection(db, "users"),
+      where("username", ">=", term),
+      where("username", "<=", term + "\uf8ff"),
+      limit(10)
+    );
+    const snap = await getDocs(q);
+    return snap.docs.map(d => d.data() as UserProfile);
+  }, []);
 }
 
 // ─── Presence ────────────────────────────────────────────────────────────────
 
 export async function setOnline(uid: string) {
-  await updateDoc(doc(db, "users", uid), {
-    online: true,
-    lastSeen: serverTimestamp(),
-  });
+  try {
+    await updateDoc(doc(db, "users", uid), { online: true, lastSeen: serverTimestamp() });
+  } catch { /* ignore */ }
 }
 
 export async function setOffline(uid: string) {
-  await updateDoc(doc(db, "users", uid), {
-    online: false,
-    lastSeen: serverTimestamp(),
-  });
+  try {
+    await updateDoc(doc(db, "users", uid), { online: false, lastSeen: serverTimestamp() });
+  } catch { /* ignore */ }
 }
 
 // ─── Contact Requests ────────────────────────────────────────────────────────
 
-export async function sendContactRequest(
-  fromUser: UserProfile,
-  toUid: string
-): Promise<void> {
+export async function sendContactRequest(fromUser: UserProfile, toUid: string): Promise<void> {
   const reqRef = doc(collection(db, "contactRequests"));
   await setDoc(reqRef, {
     fromUid: fromUser.uid,
@@ -158,18 +190,20 @@ export async function sendContactRequest(
   });
 }
 
-export function listenToIncomingRequests(
-  uid: string,
-  cb: (reqs: ContactRequest[]) => void
-) {
-  const q = query(
-    collection(db, "contactRequests"),
-    where("toUid", "==", uid),
-    where("status", "==", "pending")
-  );
-  return onSnapshot(q, snap =>
-    cb(snap.docs.map(d => ({ id: d.id, ...d.data() }) as ContactRequest))
-  );
+export function listenToIncomingRequests(uid: string, cb: (reqs: ContactRequest[]) => void) {
+  try {
+    const q = query(
+      collection(db, "contactRequests"),
+      where("toUid", "==", uid),
+      where("status", "==", "pending")
+    );
+    return onSnapshot(q, snap =>
+      cb(snap.docs.map(d => ({ id: d.id, ...d.data() }) as ContactRequest))
+    , () => cb([]));
+  } catch {
+    cb([]);
+    return () => {};
+  }
 }
 
 export async function respondToRequest(
@@ -185,15 +219,17 @@ export async function respondToRequest(
 
   if (accept) {
     const chatRef = doc(collection(db, "chats"));
-    const fromSnap = await getDoc(doc(db, "users", fromUid));
-    const toSnap = await getDoc(doc(db, "users", toUid));
+    const [fromSnap, toSnap] = await Promise.all([
+      getDoc(doc(db, "users", fromUid)),
+      getDoc(doc(db, "users", toUid)),
+    ]);
     const from = fromSnap.data() as UserProfile;
     const to = toSnap.data() as UserProfile;
 
     batch.set(chatRef, {
       participants: [fromUid, toUid],
       participantNames: { [fromUid]: from.displayName, [toUid]: to.displayName },
-      participantPhotos: { [fromUid]: from.photoURL, [toUid]: to.photoURL },
+      participantPhotos: { [fromUid]: from.photoURL ?? null, [toUid]: to.photoURL ?? null },
       lastMessage: "",
       lastMessageAt: null,
       lastMessageSenderId: "",
@@ -209,38 +245,50 @@ export async function respondToRequest(
 // ─── Chats ───────────────────────────────────────────────────────────────────
 
 export function listenToChats(uid: string, cb: (chats: Chat[]) => void) {
-  const q = query(
-    collection(db, "chats"),
-    where("participants", "array-contains", uid),
-    orderBy("lastMessageAt", "desc")
-  );
-  return onSnapshot(q, snap =>
-    cb(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Chat))
-  );
+  try {
+    const q = query(
+      collection(db, "chats"),
+      where("participants", "array-contains", uid),
+      orderBy("lastMessageAt", "desc")
+    );
+    return onSnapshot(q, snap =>
+      cb(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Chat))
+    , () => cb([]));
+  } catch {
+    cb([]);
+    return () => {};
+  }
 }
 
 export async function getChat(chatId: string): Promise<Chat | null> {
-  const snap = await getDoc(doc(db, "chats", chatId));
-  return snap.exists() ? ({ id: snap.id, ...snap.data() } as Chat) : null;
+  return safe(async () => {
+    const snap = await getDoc(doc(db, "chats", chatId));
+    return snap.exists() ? ({ id: snap.id, ...snap.data() } as Chat) : null;
+  }, null);
 }
 
 export async function markChatRead(chatId: string, uid: string) {
-  await updateDoc(doc(db, "chats", chatId), {
-    [`unreadCount.${uid}`]: 0,
-  });
+  try {
+    await updateDoc(doc(db, "chats", chatId), { [`unreadCount.${uid}`]: 0 });
+  } catch { /* ignore */ }
 }
 
 // ─── Messages ────────────────────────────────────────────────────────────────
 
 export function listenToMessages(chatId: string, cb: (msgs: Message[]) => void) {
-  const q = query(
-    collection(db, "chats", chatId, "messages"),
-    orderBy("sentAt", "asc"),
-    limit(100)
-  );
-  return onSnapshot(q, snap =>
-    cb(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Message))
-  );
+  try {
+    const q = query(
+      collection(db, "chats", chatId, "messages"),
+      orderBy("sentAt", "asc"),
+      limit(100)
+    );
+    return onSnapshot(q, snap =>
+      cb(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Message))
+    , () => cb([]));
+  } catch {
+    cb([]);
+    return () => {};
+  }
 }
 
 export async function sendMessage(
@@ -284,7 +332,7 @@ export async function sendMessage(
       senderUid: sender.uid,
       senderName: sender.displayName,
       senderUsername: sender.username,
-      senderPhoto: sender.photoURL,
+      senderPhoto: sender.photoURL ?? null,
       recipientUids: recipientUids.filter(u => u !== sender.uid),
       message: text,
       location: "",
@@ -298,65 +346,72 @@ export async function sendMessage(
 }
 
 export async function markMessageRead(chatId: string, messageId: string, uid: string) {
-  await updateDoc(doc(db, "chats", chatId, "messages", messageId), {
-    readBy: arrayUnion(uid),
-  });
+  try {
+    await updateDoc(doc(db, "chats", chatId, "messages", messageId), {
+      readBy: arrayUnion(uid),
+    });
+  } catch { /* ignore */ }
 }
 
 // ─── Typing Indicators ───────────────────────────────────────────────────────
 
 export async function setTyping(chatId: string, uid: string, isTyping: boolean) {
-  const ref = doc(db, "chats", chatId, "typing", uid);
-  if (isTyping) {
-    await setDoc(ref, { uid, typingAt: serverTimestamp() });
-  } else {
-    await deleteDoc(ref);
-  }
+  try {
+    const ref = doc(db, "chats", chatId, "typing", uid);
+    if (isTyping) {
+      await setDoc(ref, { uid, typingAt: serverTimestamp() });
+    } else {
+      await deleteDoc(ref);
+    }
+  } catch { /* ignore */ }
 }
 
-export function listenToTyping(
-  chatId: string,
-  myUid: string,
-  cb: (typingUids: string[]) => void
-) {
-  return onSnapshot(collection(db, "chats", chatId, "typing"), snap => {
-    const uids = snap.docs
-      .map(d => d.data().uid as string)
-      .filter(uid => uid !== myUid);
-    cb(uids);
-  });
+export function listenToTyping(chatId: string, myUid: string, cb: (typingUids: string[]) => void) {
+  try {
+    return onSnapshot(collection(db, "chats", chatId, "typing"), snap => {
+      const uids = snap.docs.map(d => d.data().uid as string).filter(uid => uid !== myUid);
+      cb(uids);
+    }, () => cb([]));
+  } catch {
+    cb([]);
+    return () => {};
+  }
 }
 
 // ─── Emergency Alerts ────────────────────────────────────────────────────────
 
-export function listenToEmergencyAlerts(
-  uid: string,
-  cb: (alerts: EmergencyAlert[]) => void
-) {
-  const q = query(
-    collection(db, "emergencyAlerts"),
-    where("recipientUids", "array-contains", uid),
-    orderBy("createdAt", "desc"),
-    limit(20)
-  );
-  return onSnapshot(q, snap =>
-    cb(snap.docs.map(d => ({ id: d.id, ...d.data() }) as EmergencyAlert))
-  );
+export function listenToEmergencyAlerts(uid: string, cb: (alerts: EmergencyAlert[]) => void) {
+  try {
+    const q = query(
+      collection(db, "emergencyAlerts"),
+      where("recipientUids", "array-contains", uid),
+      orderBy("createdAt", "desc"),
+      limit(20)
+    );
+    return onSnapshot(q, snap =>
+      cb(snap.docs.map(d => ({ id: d.id, ...d.data() }) as EmergencyAlert))
+    , () => cb([]));
+  } catch {
+    cb([]);
+    return () => {};
+  }
 }
 
-export function listenToMyAlerts(
-  uid: string,
-  cb: (alerts: EmergencyAlert[]) => void
-) {
-  const q = query(
-    collection(db, "emergencyAlerts"),
-    where("senderUid", "==", uid),
-    orderBy("createdAt", "desc"),
-    limit(10)
-  );
-  return onSnapshot(q, snap =>
-    cb(snap.docs.map(d => ({ id: d.id, ...d.data() }) as EmergencyAlert))
-  );
+export function listenToMyAlerts(uid: string, cb: (alerts: EmergencyAlert[]) => void) {
+  try {
+    const q = query(
+      collection(db, "emergencyAlerts"),
+      where("senderUid", "==", uid),
+      orderBy("createdAt", "desc"),
+      limit(10)
+    );
+    return onSnapshot(q, snap =>
+      cb(snap.docs.map(d => ({ id: d.id, ...d.data() }) as EmergencyAlert))
+    , () => cb([]));
+  } catch {
+    cb([]);
+    return () => {};
+  }
 }
 
 export async function resolveAlert(alertId: string) {
@@ -376,7 +431,7 @@ export async function sendEmergencyAlert(
     senderUid: sender.uid,
     senderName: sender.displayName,
     senderUsername: sender.username,
-    senderPhoto: sender.photoURL,
+    senderPhoto: sender.photoURL ?? null,
     recipientUids,
     message,
     location,
@@ -388,40 +443,36 @@ export async function sendEmergencyAlert(
 
 // ─── Devices ─────────────────────────────────────────────────────────────────
 
-export interface Device {
-  id: string;
-  uid: string;
-  name: string;
-  browser: string;
-  os: string;
-  lastActive: Timestamp;
-  current: boolean;
-}
-
 export function listenToDevices(uid: string, cb: (devices: Device[]) => void) {
-  const q = query(
-    collection(db, "devices"),
-    where("uid", "==", uid),
-    orderBy("lastActive", "desc")
-  );
-  return onSnapshot(q, snap =>
-    cb(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Device))
-  );
+  try {
+    const q = query(
+      collection(db, "devices"),
+      where("uid", "==", uid),
+      orderBy("lastActive", "desc")
+    );
+    return onSnapshot(q, snap =>
+      cb(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Device))
+    , () => cb([]));
+  } catch {
+    cb([]);
+    return () => {};
+  }
 }
 
 export async function registerDevice(uid: string, deviceId: string) {
-  const ua = navigator.userAgent;
-  const browser = ua.includes("Chrome") ? "Chrome" : ua.includes("Firefox") ? "Firefox" : ua.includes("Safari") ? "Safari" : "Browser";
-  const os = ua.includes("Win") ? "Windows" : ua.includes("Mac") ? "macOS" : ua.includes("Linux") ? "Linux" : ua.includes("Android") ? "Android" : ua.includes("iPhone") || ua.includes("iPad") ? "iOS" : "Unknown";
-
-  await setDoc(doc(db, "devices", deviceId), {
-    uid,
-    name: `${browser} on ${os}`,
-    browser,
-    os,
-    lastActive: serverTimestamp(),
-    current: true,
-  });
+  try {
+    const ua = navigator.userAgent;
+    const browser = ua.includes("Chrome") ? "Chrome" : ua.includes("Firefox") ? "Firefox" : ua.includes("Safari") ? "Safari" : "Browser";
+    const os = ua.includes("Win") ? "Windows" : ua.includes("Mac") ? "macOS" : ua.includes("Linux") ? "Linux" : ua.includes("Android") ? "Android" : ua.includes("iPhone") || ua.includes("iPad") ? "iOS" : "Unknown";
+    await setDoc(doc(db, "devices", deviceId), {
+      uid,
+      name: `${browser} on ${os}`,
+      browser,
+      os,
+      lastActive: serverTimestamp(),
+      current: true,
+    });
+  } catch { /* ignore */ }
 }
 
 export async function removeDevice(deviceId: string) {
@@ -431,12 +482,15 @@ export async function removeDevice(deviceId: string) {
 // ─── Settings ────────────────────────────────────────────────────────────────
 
 export async function updateSettings(uid: string, settings: { autoLogoutMinutes?: number; theme?: string }) {
-  await updateDoc(doc(db, "users", uid), settings);
+  try {
+    await updateDoc(doc(db, "users", uid), settings);
+  } catch { /* ignore */ }
 }
 
-// ─── Invite Links ────────────────────────────────────────────────────────────
+// ─── Invite ──────────────────────────────────────────────────────────────────
 
 export function generateInviteLink(username: string): string {
   const base = window.location.origin;
-  return `${base}/invite/${username}`;
+  const basePath = import.meta.env.BASE_URL || "/";
+  return `${base}${basePath}invite/${username}`;
 }

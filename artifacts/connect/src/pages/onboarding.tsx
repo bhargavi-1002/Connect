@@ -16,10 +16,11 @@ export default function OnboardingPage() {
     setLoading(true);
     try {
       const { isNew } = await signInWithGoogle();
-      setLocation(isNew ? "/signup" : "/chats");
+      // New users → set up their username first
+      setLocation(isNew ? "/setup-profile" : "/chats");
     } catch (err: unknown) {
       toast({
-        title: "Sign-in failed",
+        title: "Google sign-in failed",
         description: err instanceof Error ? err.message : "Please try again.",
         variant: "destructive",
       });
@@ -30,31 +31,40 @@ export default function OnboardingPage() {
 
   return (
     <AppLayout showBottomNav={false} className="justify-center p-6">
+      <div id="recaptcha-container" />
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         className="flex flex-col items-center text-center max-w-sm mx-auto w-full"
       >
-        <div className="relative w-full aspect-square max-w-[280px] mb-8">
+        {/* Hero image */}
+        <div className="relative w-full aspect-square max-w-[260px] mb-8">
           <div className="absolute inset-0 bg-primary/30 blur-[60px] rounded-full" />
           <img
             src="/onboarding-cloud.png"
-            alt="Child on cloud"
+            alt="Connect"
             className="w-full h-full object-contain relative z-10 drop-shadow-2xl"
+            onError={(e) => {
+              const el = e.target as HTMLImageElement;
+              el.style.display = "none";
+            }}
           />
         </div>
 
-        <h1 className="text-3xl font-bold mb-3 tracking-tight">Welcome to Connect</h1>
-        <p className="text-muted-foreground mb-10 text-[15px]">
-          Stay close to your loved ones in a magical, safe space.
+        <h1 className="text-3xl font-bold mb-2 tracking-tight">Welcome to Connect</h1>
+        <p className="text-muted-foreground mb-10 text-[15px] leading-relaxed">
+          Stay close to your family — even from afar.
+          <br />
+          <span className="text-primary/80">No phone required to get started.</span>
         </p>
 
-        <div className="flex flex-col gap-4 w-full">
+        <div className="flex flex-col gap-3 w-full">
+          {/* Google */}
           <Button
             onClick={handleGoogle}
             disabled={loading}
             variant="outline"
-            className="w-full h-14 rounded-2xl glass-card border-white/10 hover:bg-white/5 font-medium text-base relative overflow-hidden group"
+            className="w-full h-14 rounded-2xl glass-card border-white/10 hover:bg-white/5 font-medium text-base"
           >
             {loading ? (
               <Loader2 className="w-5 h-5 mr-3 animate-spin" />
@@ -69,18 +79,27 @@ export default function OnboardingPage() {
             Continue with Google
           </Button>
 
-          <Link href="/verify">
-            <Button variant="outline" className="w-full h-14 rounded-2xl glass-card border-white/10 hover:bg-white/5 font-medium text-base relative overflow-hidden group">
-              <svg className="w-5 h-5 mr-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="5" y="2" width="14" height="20" rx="2" ry="2" />
+          {/* Phone OTP */}
+          <Link href="/verify" className="w-full">
+            <Button
+              variant="outline"
+              className="w-full h-14 rounded-2xl glass-card border-white/10 hover:bg-white/5 font-medium text-base"
+              disabled={loading}
+            >
+              <svg className="w-5 h-5 mr-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <rect x="5" y="2" width="14" height="20" rx="2" />
                 <line x1="12" y1="18" x2="12.01" y2="18" />
               </svg>
               Continue with Mobile OTP
             </Button>
           </Link>
 
-          <Link href="/login">
-            <Button className="w-full h-14 rounded-2xl bg-gradient-to-r from-primary to-secondary hover:opacity-90 text-white font-semibold text-base glowing-primary border-none">
+          {/* Username / Email login */}
+          <Link href="/login" className="w-full">
+            <Button
+              className="w-full h-14 rounded-2xl bg-gradient-to-r from-primary to-secondary hover:opacity-90 text-white font-semibold text-base glowing-primary border-none"
+              disabled={loading}
+            >
               <User className="w-5 h-5 mr-2" />
               Login with Username
             </Button>
@@ -88,13 +107,12 @@ export default function OnboardingPage() {
         </div>
 
         <p className="mt-8 text-sm text-muted-foreground">
-          Don't have an account?{" "}
+          New here?{" "}
           <Link href="/signup" className="text-primary font-medium hover:underline">
-            Sign up
+            Create an account
           </Link>
         </p>
       </motion.div>
-      <div id="recaptcha-container" />
     </AppLayout>
   );
 }

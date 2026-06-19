@@ -9,6 +9,7 @@ import NotFound from "@/pages/not-found";
 import LandingPage from "@/pages/landing";
 import OnboardingPage from "@/pages/onboarding";
 import SignupPage from "@/pages/signup";
+import SetupProfilePage from "@/pages/setup-profile";
 import VerifyPage from "@/pages/verify";
 import LoginPage from "@/pages/login";
 import ChatsPage from "@/pages/chats";
@@ -48,20 +49,22 @@ function ProtectedRoute({ component: Component }: { component: React.ComponentTy
   }
 
   if (!user) return null;
-
   return <Component />;
 }
 
 function Router() {
   return (
     <Switch>
+      {/* Public routes */}
       <Route path="/" component={LandingPage} />
       <Route path="/onboarding" component={OnboardingPage} />
       <Route path="/signup" component={SignupPage} />
+      <Route path="/setup-profile" component={SetupProfilePage} />
       <Route path="/verify" component={VerifyPage} />
       <Route path="/login" component={LoginPage} />
       <Route path="/invite/:username" component={InvitePage} />
 
+      {/* Protected routes */}
       <Route path="/chats">
         {() => <ProtectedRoute component={ChatsPage} />}
       </Route>

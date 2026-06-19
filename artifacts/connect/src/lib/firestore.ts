@@ -21,6 +21,7 @@ export interface UserProfile {
   fcmToken?: string;
   autoLogoutMinutes: number;
   theme: string;
+  chatWallpaper: string;
 }
 
 export interface ContactRequest {
@@ -101,11 +102,12 @@ async function safe<T>(fn: () => Promise<T>, fallback: T): Promise<T> {
 export async function createUserProfile(
   user: User,
   extra: { username: string; displayName: string }
-): Promise<UserProfile | null> {
-  const profile: UserProfile = {
+): Promise<void> {
+  const username = extra.username.toLowerCase().replace(/\s/g, "_");
+  const profile: Omit<UserProfile, "id"> = {
     uid: user.uid,
     displayName: extra.displayName,
-    username: extra.username.toLowerCase(),
+    username,
     email: user.email,
     photoURL: user.photoURL,
     bio: "",
@@ -114,14 +116,14 @@ export async function createUserProfile(
     createdAt: serverTimestamp() as Timestamp,
     autoLogoutMinutes: 15,
     theme: "midnight",
+    chatWallpaper: "none",
   };
-  try {
-    await setDoc(doc(db, "users", user.uid), profile);
-    await setDoc(doc(db, "usernames", extra.username.toLowerCase()), { uid: user.uid });
-    return profile;
-  } catch {
-    return null;
-  }
+  await setDoc(doc(db, "users", user.uid), profile);
+  // usernames doc stores uid + email so username-based login can look up email
+  await setDoc(doc(db, "usernames", username), {
+    uid: user.uid,
+    email: user.email ?? "",
+  });
 }
 
 export async function getUserProfile(uid: string): Promise<UserProfile | null> {
@@ -134,16 +136,15 @@ export async function getUserProfile(uid: string): Promise<UserProfile | null> {
 export async function updateUserProfile(uid: string, data: Partial<UserProfile>) {
   try {
     await updateDoc(doc(db, "users", uid), data as Record<string, unknown>);
-  } catch {
-    // silently fail — UI shows toast from caller
-  }
+  } catch { /* ignore */ }
 }
 
+/** Returns true if the username is available (not taken). Falls back to true if Firestore is offline. */
 export async function checkUsernameAvailable(username: string): Promise<boolean> {
   return safe(async () => {
     const snap = await getDoc(doc(db, "usernames", username.toLowerCase()));
     return !snap.exists();
-  }, true); // assume available if offline — duplicate check happens at write time
+  }, true);
 }
 
 export async function searchUsersByUsername(searchTerm: string): Promise<UserProfile[]> {
@@ -197,9 +198,10 @@ export function listenToIncomingRequests(uid: string, cb: (reqs: ContactRequest[
       where("toUid", "==", uid),
       where("status", "==", "pending")
     );
-    return onSnapshot(q, snap =>
-      cb(snap.docs.map(d => ({ id: d.id, ...d.data() }) as ContactRequest))
-    , () => cb([]));
+    return onSnapshot(q,
+      snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() }) as ContactRequest)),
+      () => cb([])
+    );
   } catch {
     cb([]);
     return () => {};
@@ -251,9 +253,10 @@ export function listenToChats(uid: string, cb: (chats: Chat[]) => void) {
       where("participants", "array-contains", uid),
       orderBy("lastMessageAt", "desc")
     );
-    return onSnapshot(q, snap =>
-      cb(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Chat))
-    , () => cb([]));
+    return onSnapshot(q,
+      snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Chat)),
+      () => cb([])
+    );
   } catch {
     cb([]);
     return () => {};
@@ -282,9 +285,10 @@ export function listenToMessages(chatId: string, cb: (msgs: Message[]) => void) 
       orderBy("sentAt", "asc"),
       limit(100)
     );
-    return onSnapshot(q, snap =>
-      cb(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Message))
-    , () => cb([]));
+    return onSnapshot(q,
+      snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Message)),
+      () => cb([])
+    );
   } catch {
     cb([]);
     return () => {};
@@ -353,7 +357,7 @@ export async function markMessageRead(chatId: string, messageId: string, uid: st
   } catch { /* ignore */ }
 }
 
-// ─── Typing Indicators ───────────────────────────────────────────────────────
+// ─── Typing ──────────────────────────────────────────────────────────────────
 
 export async function setTyping(chatId: string, uid: string, isTyping: boolean) {
   try {
@@ -388,9 +392,10 @@ export function listenToEmergencyAlerts(uid: string, cb: (alerts: EmergencyAlert
       orderBy("createdAt", "desc"),
       limit(20)
     );
-    return onSnapshot(q, snap =>
-      cb(snap.docs.map(d => ({ id: d.id, ...d.data() }) as EmergencyAlert))
-    , () => cb([]));
+    return onSnapshot(q,
+      snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() }) as EmergencyAlert)),
+      () => cb([])
+    );
   } catch {
     cb([]);
     return () => {};
@@ -405,9 +410,10 @@ export function listenToMyAlerts(uid: string, cb: (alerts: EmergencyAlert[]) => 
       orderBy("createdAt", "desc"),
       limit(10)
     );
-    return onSnapshot(q, snap =>
-      cb(snap.docs.map(d => ({ id: d.id, ...d.data() }) as EmergencyAlert))
-    , () => cb([]));
+    return onSnapshot(q,
+      snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() }) as EmergencyAlert)),
+      () => cb([])
+    );
   } catch {
     cb([]);
     return () => {};
@@ -450,9 +456,10 @@ export function listenToDevices(uid: string, cb: (devices: Device[]) => void) {
       where("uid", "==", uid),
       orderBy("lastActive", "desc")
     );
-    return onSnapshot(q, snap =>
-      cb(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Device))
-    , () => cb([]));
+    return onSnapshot(q,
+      snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Device)),
+      () => cb([])
+    );
   } catch {
     cb([]);
     return () => {};
@@ -481,7 +488,7 @@ export async function removeDevice(deviceId: string) {
 
 // ─── Settings ────────────────────────────────────────────────────────────────
 
-export async function updateSettings(uid: string, settings: { autoLogoutMinutes?: number; theme?: string }) {
+export async function updateSettings(uid: string, settings: Partial<Pick<UserProfile, "autoLogoutMinutes" | "theme" | "chatWallpaper">>) {
   try {
     await updateDoc(doc(db, "users", uid), settings);
   } catch { /* ignore */ }

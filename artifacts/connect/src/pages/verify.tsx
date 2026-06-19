@@ -9,50 +9,53 @@ import { sendOTP, verifyOTP, clearRecaptcha } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 
 function mapOtpError(msg: string): string {
-  if (msg.includes("invalid-phone-number")) return "Invalid phone number. Use international format, e.g. +91 98765 43210";
-  if (msg.includes("too-many-requests")) return "Too many OTP requests. Please wait a few minutes before trying again.";
-  if (msg.includes("billing") || msg.includes("not-enabled") || msg.includes("admin-restricted")) {
-    return "Phone sign-in requires a Firebase Blaze plan. Please use Google or Email/Password sign-in instead.";
-  }
-  if (msg.includes("network-request-failed") || msg.includes("offline")) return "No internet connection. Please check your network.";
-  if (msg.includes("missing-client-identifier") || msg.includes("recaptcha")) return "reCAPTCHA verification failed. Please refresh and try again.";
-  if (msg.includes("invalid-verification-code")) return "Incorrect OTP. Please check the code and try again.";
-  if (msg.includes("session-expired") || msg.includes("expired")) return "OTP expired. Please request a new one.";
+  if (msg.includes("invalid-phone-number")) return "Invalid phone number. Include country code, e.g. +91 98765 43210";
+  if (msg.includes("too-many-requests")) return "Too many OTP requests. Wait a few minutes.";
+  if (msg.includes("billing") || msg.includes("not-enabled") || msg.includes("admin-restricted") || msg.includes("BILLING"))
+    return "Phone sign-in requires a Firebase Blaze plan upgrade. Use Google or Email sign-in instead.";
+  if (msg.includes("network-request-failed") || msg.includes("offline")) return "No internet. Check your connection.";
+  if (msg.includes("missing-client-identifier") || msg.includes("recaptcha") || msg.includes("MISSING_CLIENT_IDENTIFIER"))
+    return "Verification check failed. Refresh the page and try again.";
+  if (msg.includes("invalid-verification-code") || msg.includes("INVALID_CODE")) return "Wrong OTP. Check the code and try again.";
+  if (msg.includes("session-expired") || msg.includes("expired")) return "OTP expired. Request a new one.";
   return msg;
 }
 
 export default function VerifyPage() {
   const [, setLocation] = useLocation();
   const { toast } = useToast();
+
   const [phone, setPhone] = useState("");
   const [otp, setOtp] = useState(["", "", "", "", "", ""]);
   const [step, setStep] = useState<"phone" | "otp">("phone");
   const [loading, setLoading] = useState(false);
   const inputs = useRef<(HTMLInputElement | null)[]>([]);
 
-  // Clean up recaptcha on unmount
   useEffect(() => {
     return () => { clearRecaptcha(); };
   }, []);
 
+  const formatPhone = (raw: string) => {
+    const clean = raw.replace(/\s/g, "");
+    return clean.startsWith("+") ? clean : `+${clean}`;
+  };
+
   const handleSendOTP = async () => {
-    const trimmed = phone.trim();
-    if (!trimmed) return;
-    const formatted = trimmed.startsWith("+") ? trimmed : `+${trimmed.replace(/\s/g, "")}`;
+    const formatted = formatPhone(phone.trim());
+    if (formatted.length < 8) return;
     setLoading(true);
     try {
       await sendOTP(formatted, "recaptcha-container");
       setStep("otp");
       toast({ title: "OTP sent!", description: `Code sent to ${formatted}` });
+      setTimeout(() => inputs.current[0]?.focus(), 300);
     } catch (err: unknown) {
       clearRecaptcha();
       const msg = err instanceof Error ? err.message : "Failed to send OTP.";
       const friendly = mapOtpError(msg);
       toast({ title: "OTP failed", description: friendly, variant: "destructive" });
-
-      // If billing issue, redirect to email signup
-      if (msg.includes("billing") || msg.includes("not-enabled") || msg.includes("admin-restricted")) {
-        setTimeout(() => setLocation("/signup"), 2000);
+      if (msg.includes("billing") || msg.includes("BILLING") || msg.includes("not-enabled")) {
+        setTimeout(() => setLocation("/signup"), 2500);
       }
     } finally {
       setLoading(false);
@@ -82,7 +85,8 @@ export default function VerifyPage() {
     setLoading(true);
     try {
       const { isNew } = await verifyOTP(code);
-      setLocation(isNew ? "/signup" : "/chats");
+      // New users need to pick username, returning users go to chats
+      setLocation(isNew ? "/setup-profile" : "/chats");
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Verification failed.";
       toast({ title: "Verification failed", description: mapOtpError(msg), variant: "destructive" });
@@ -103,7 +107,6 @@ export default function VerifyPage() {
 
   return (
     <AppLayout showBottomNav={false} className="p-6">
-      {/* Invisible reCAPTCHA container */}
       <div id="recaptcha-container" />
 
       <div className="flex-1 flex flex-col pt-10 max-w-sm mx-auto w-full">
@@ -122,51 +125,43 @@ export default function VerifyPage() {
           <Phone className="w-8 h-8" />
         </motion.div>
 
-        {/* Blaze plan notice */}
+        {/* Info notice */}
         <div className="flex items-start gap-2 bg-warning/10 border border-warning/20 rounded-2xl p-3 mb-6">
           <AlertCircle className="w-4 h-4 text-warning flex-shrink-0 mt-0.5" />
           <p className="text-xs text-warning/90 leading-relaxed">
-            Phone sign-in requires a Firebase Blaze (pay-as-you-go) plan. If it fails, use{" "}
-            <Link href="/signup" className="underline font-medium">Email/Password</Link> or{" "}
-            <Link href="/onboarding" className="underline font-medium">Google</Link> sign-in instead.
+            Requires Firebase Blaze plan. If it fails, use{" "}
+            <Link href="/signup" className="underline font-medium">Email</Link> or{" "}
+            <Link href="/onboarding" className="underline font-medium">Google</Link> instead.
           </p>
         </div>
 
         {step === "phone" ? (
           <>
-            <h1 className="text-3xl font-bold mb-2">Mobile Verification</h1>
+            <h1 className="text-3xl font-bold mb-2">Enter Mobile Number</h1>
             <p className="text-muted-foreground mb-8 text-sm">
-              Enter your number with country code (e.g. +91 for India)
+              We'll send a one-time code to verify it's you.
             </p>
-
-            <div className="flex-1 space-y-2">
-              <Input
-                type="tel"
-                placeholder="+91 98765 43210"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                className="h-14 rounded-2xl bg-surface/50 border-white/10 focus-visible:ring-primary/50 px-4 text-base"
-                onKeyDown={(e) => { if (e.key === "Enter") handleSendOTP(); }}
-              />
-            </div>
-
+            <Input
+              type="tel"
+              placeholder="+91 98765 43210"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              className="h-14 rounded-2xl bg-surface/50 border-white/10 focus-visible:ring-primary/50 px-4 text-base mb-8"
+              onKeyDown={(e) => { if (e.key === "Enter") handleSendOTP(); }}
+            />
             <Button
               onClick={handleSendOTP}
-              disabled={phone.trim().length < 8 || loading}
-              className="w-full h-14 rounded-2xl bg-gradient-to-r from-primary to-secondary hover:opacity-90 text-white font-semibold text-base glowing-primary border-none mt-8"
+              disabled={phone.trim().length < 6 || loading}
+              className="w-full h-14 rounded-2xl bg-gradient-to-r from-primary to-secondary hover:opacity-90 text-white font-semibold text-base glowing-primary border-none"
             >
-              {loading ? (
-                <Loader2 className="w-5 h-5 animate-spin" />
-              ) : (
-                <>Send OTP <ArrowRight className="w-5 h-5 ml-2" /></>
-              )}
+              {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <>Send OTP <ArrowRight className="w-5 h-5 ml-2" /></>}
             </Button>
           </>
         ) : (
           <>
             <h1 className="text-3xl font-bold mb-2">Enter OTP</h1>
             <p className="text-muted-foreground mb-8 text-sm">
-              6-digit code sent to <span className="text-white font-medium">{phone}</span>
+              6-digit code sent to <span className="text-white font-medium">{formatPhone(phone)}</span>
             </p>
 
             <div className="flex gap-2 justify-between mb-6" onPaste={handlePaste}>
@@ -181,16 +176,14 @@ export default function VerifyPage() {
                   onChange={(e) => handleOtpChange(i, e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === "Backspace" && !digit && i > 0) inputs.current[i - 1]?.focus();
+                    if (e.key === "Enter" && otp.join("").length === 6) handleVerify();
                   }}
                   className="w-12 h-14 rounded-xl bg-surface/50 border border-white/10 text-center text-xl font-bold text-white focus:outline-none focus:border-primary/60 focus:ring-1 focus:ring-primary/50 transition-colors"
                 />
               ))}
             </div>
 
-            <button
-              onClick={handleResend}
-              className="text-sm text-primary hover:underline text-center mb-6 w-full"
-            >
+            <button onClick={handleResend} className="text-sm text-primary hover:underline mb-6 w-full text-center">
               Didn't receive it? Resend OTP
             </button>
 
@@ -199,20 +192,14 @@ export default function VerifyPage() {
               disabled={otp.join("").length !== 6 || loading}
               className="w-full h-14 rounded-2xl bg-gradient-to-r from-primary to-secondary hover:opacity-90 text-white font-semibold text-base glowing-primary border-none"
             >
-              {loading ? (
-                <Loader2 className="w-5 h-5 animate-spin" />
-              ) : (
-                <>Verify & Continue <ArrowRight className="w-5 h-5 ml-2" /></>
-              )}
+              {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : <>Verify & Continue <ArrowRight className="w-5 h-5 ml-2" /></>}
             </Button>
           </>
         )}
 
-        <p className="mt-6 text-center text-sm text-muted-foreground">
+        <p className="mt-6 text-center text-sm text-muted-foreground pb-4">
           Prefer email?{" "}
-          <Link href="/signup" className="text-primary font-medium hover:underline">
-            Sign up with Email
-          </Link>
+          <Link href="/signup" className="text-primary font-medium hover:underline">Sign up with Email</Link>
         </p>
       </div>
     </AppLayout>

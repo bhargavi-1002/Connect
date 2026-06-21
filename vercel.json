@@ -2,7 +2,6 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "name": "connect",
   "framework": "vite",
-  "packageManager": "pnpm",
   "installCommand": "pnpm install --no-frozen-lockfile",
   "buildCommand": "pnpm --filter @workspace/connect build",
   "outputDirectory": "artifacts/connect/dist/public",

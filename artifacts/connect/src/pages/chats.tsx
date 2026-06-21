@@ -1,12 +1,12 @@
 import { useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
-import { Search, Plus, UserPlus, ScanLine, Link as LinkIcon } from "lucide-react";
+import { Search, Plus, UserPlus, ScanLine, Link as LinkIcon, Users, Pin, Archive, ArchiveRestore, ChevronDown, ChevronRight } from "lucide-react";
 import { AppLayout } from "@/components/app-layout";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/contexts/AuthContext";
-import { listenToChats, markChatRead, generateInviteLink, type Chat } from "@/lib/firestore";
+import { listenToChats, markChatRead, generateInviteLink, archiveChat, unarchiveChat, type Chat } from "@/lib/firestore";
 import { Mascot } from "@/components/mascot";
 import { formatDistanceToNow } from "date-fns";
 
@@ -33,6 +33,7 @@ export default function ChatsPage() {
   const [search, setSearch] = useState("");
   const [chats, setChats] = useState<Chat[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showArchived, setShowArchived] = useState(false);
   const tabs = ["All", "Important", "Groups", "Emergency"];
 
   useEffect(() => {
@@ -44,7 +45,7 @@ export default function ChatsPage() {
     return () => unsub();
   }, [user]);
 
-  const filtered = chats.filter(chat => {
+  const filterChat = (chat: Chat) => {
     const otherUid = chat.participants.find(uid => uid !== user?.uid) || "";
     const name = chat.isGroup
       ? (chat.groupName || "Group")
@@ -54,7 +55,11 @@ export default function ChatsPage() {
     if (activeTab === "groups") return matchesSearch && chat.isGroup;
     if (activeTab === "emergency") return matchesSearch && chat.lastMessage.includes("[emergency]");
     return matchesSearch;
-  });
+  };
+
+  const pinned = chats.filter(c => c.pinnedBy?.[user?.uid || ""] && !c.archivedBy?.[user?.uid || ""] && filterChat(c));
+  const archived = chats.filter(c => c.archivedBy?.[user?.uid || ""] && filterChat(c));
+  const normal = chats.filter(c => !c.pinnedBy?.[user?.uid || ""] && !c.archivedBy?.[user?.uid || ""] && filterChat(c));
 
   const handleChatClick = async (chat: Chat) => {
     if (user && (chat.unreadCount[user.uid] || 0) > 0) await markChatRead(chat.id, user.uid);
@@ -65,12 +70,73 @@ export default function ChatsPage() {
     if (profile) navigator.clipboard.writeText(generateInviteLink(profile.username));
   };
 
+  const renderChat = (chat: Chat, i: number) => {
+    const otherUid = chat.participants.find(uid => uid !== user?.uid) || "";
+    const name = chat.isGroup ? (chat.groupName || "Group") : (chat.participantNames[otherUid] || "Unknown");
+    const photo = chat.isGroup ? chat.groupPhoto : chat.participantPhotos[otherUid];
+    const unread = user ? (chat.unreadCount[user.uid] || 0) : 0;
+    const lastPriority = chat.lastMessage.match(/^\[(\w+)\]/)?.[1] || "normal";
+    const displayMessage = chat.lastMessage.replace(/^\[\w+\]\s*/, "") || "Start a conversation";
+    const isPinned = chat.pinnedBy?.[user?.uid || ""];
+
+    return (
+      <motion.div
+        key={chat.id}
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: i * 0.04 }}
+        onClick={() => handleChatClick(chat)}
+        className="p-4 rounded-3xl glass-card flex items-center gap-4 hover:bg-white/[0.08] active:scale-[0.98] transition-all cursor-pointer"
+      >
+        <div className="relative flex-shrink-0">
+          {photo ? (
+            <img src={photo} alt={name} className="w-14 h-14 rounded-full object-cover border border-white/10" />
+          ) : (
+            <div className="w-14 h-14 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-white font-bold text-xl border border-white/10">
+              {name.charAt(0).toUpperCase()}
+            </div>
+          )}
+          {unread > 0 && (
+            <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-primary border-2 border-background" />
+          )}
+          {isPinned && (
+            <span className="absolute -top-1 -left-1">
+              <Pin className="w-3.5 h-3.5 text-primary" />
+            </span>
+          )}
+        </div>
+
+        <div className="flex-1 min-w-0">
+          <div className="flex justify-between items-center mb-0.5">
+            <h3 className="font-semibold text-[17px] truncate">{name}</h3>
+            <span className={`text-xs whitespace-nowrap ml-2 ${unread ? "text-primary font-medium" : "text-muted-foreground"}`}>
+              {formatTime(chat.lastMessageAt)}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            {priorityDot[lastPriority] && (
+              <span className={`w-2 h-2 rounded-full flex-shrink-0 ${priorityDot[lastPriority]}`} />
+            )}
+            <p className={`text-[14px] truncate ${unread ? "text-white/90 font-medium" : "text-muted-foreground"}`}>
+              {displayMessage}
+            </p>
+          </div>
+        </div>
+
+        {unread > 0 && (
+          <div className="w-6 h-6 rounded-full bg-primary flex items-center justify-center text-[11px] font-bold text-white shadow-[0_0_10px_var(--glow-primary,rgba(124,77,255,0.4))] flex-shrink-0">
+            {unread}
+          </div>
+        )}
+      </motion.div>
+    );
+  };
+
   return (
     <AppLayout showBottomNav={true}>
       <header className="pt-12 pb-4 px-5 sticky top-0 z-40 bg-background/80 backdrop-blur-xl border-b border-white/5">
         <div className="flex justify-between items-center mb-5">
           <div className="flex items-center gap-3">
-            {/* Mascot in header — floating penguin peeking */}
             <div className="relative w-9 h-9">
               <div className="absolute inset-0 bg-primary/30 blur-[10px] rounded-full" />
               <img
@@ -85,14 +151,24 @@ export default function ChatsPage() {
               {profile && <p className="text-xs text-muted-foreground">@{profile.username}</p>}
             </div>
           </div>
-          <Link href="/connections">
-            <motion.button
-              whileTap={{ scale: 0.9 }}
-              className="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-white shadow-[0_0_14px_var(--glow-primary,rgba(124,77,255,0.4))]"
-            >
-              <Plus className="w-5 h-5" />
-            </motion.button>
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link href="/create-group">
+              <motion.button
+                whileTap={{ scale: 0.9 }}
+                className="w-10 h-10 rounded-full bg-surface/50 border border-white/10 flex items-center justify-center text-muted-foreground hover:text-white hover:bg-white/10 transition-colors"
+              >
+                <Users className="w-5 h-5" />
+              </motion.button>
+            </Link>
+            <Link href="/connections">
+              <motion.button
+                whileTap={{ scale: 0.9 }}
+                className="w-10 h-10 rounded-full bg-primary flex items-center justify-center text-white shadow-[0_0_14px_var(--glow-primary,rgba(124,77,255,0.4))]"
+              >
+                <Plus className="w-5 h-5" />
+              </motion.button>
+            </Link>
+          </div>
         </div>
 
         <div className="relative mb-4">
@@ -127,13 +203,12 @@ export default function ChatsPage() {
           <div className="flex items-center justify-center py-20">
             <div className="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
           </div>
-        ) : filtered.length === 0 ? (
+        ) : pinned.length === 0 && normal.length === 0 && archived.length === 0 ? (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             className="flex flex-col items-center justify-center py-10 text-center px-6"
           >
-            {/* Character — integrated, floating, glowing */}
             <Mascot
               src="/onboarding-cloud.png"
               size="w-48"
@@ -171,61 +246,54 @@ export default function ChatsPage() {
           </motion.div>
         ) : (
           <div className="space-y-3">
-            {filtered.map((chat, i) => {
-              const otherUid = chat.participants.find(uid => uid !== user?.uid) || "";
-              const name = chat.isGroup ? (chat.groupName || "Group") : (chat.participantNames[otherUid] || "Unknown");
-              const photo = chat.isGroup ? chat.groupPhoto : chat.participantPhotos[otherUid];
-              const unread = user ? (chat.unreadCount[user.uid] || 0) : 0;
-              const lastPriority = chat.lastMessage.match(/^\[(\w+)\]/)?.[1] || "normal";
-              const displayMessage = chat.lastMessage.replace(/^\[\w+\]\s*/, "") || "Start a conversation";
+            {/* Pinned Chats */}
+            {pinned.length > 0 && (
+              <div>
+                <div className="flex items-center gap-2 px-1 mb-2">
+                  <Pin className="w-3.5 h-3.5 text-primary" />
+                  <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Pinned</span>
+                </div>
+                {pinned.map((chat, i) => renderChat(chat, i))}
+                <div className="h-4" />
+              </div>
+            )}
 
-              return (
-                <motion.div
-                  key={chat.id}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: i * 0.04 }}
-                  onClick={() => handleChatClick(chat)}
-                  className="p-4 rounded-3xl glass-card flex items-center gap-4 hover:bg-white/[0.08] active:scale-[0.98] transition-all cursor-pointer"
+            {/* Normal Chats */}
+            {normal.map((chat, i) => renderChat(chat, i))}
+
+            {/* Archived Chats */}
+            {archived.length > 0 && (
+              <div>
+                <button
+                  onClick={() => setShowArchived(v => !v)}
+                  className="w-full flex items-center gap-3 px-4 py-3 rounded-3xl glass-card hover:bg-white/[0.08] transition-all"
                 >
-                  <div className="relative flex-shrink-0">
-                    {photo ? (
-                      <img src={photo} alt={name} className="w-14 h-14 rounded-full object-cover border border-white/10" />
-                    ) : (
-                      <div className="w-14 h-14 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-white font-bold text-xl border border-white/10">
-                        {name.charAt(0).toUpperCase()}
-                      </div>
-                    )}
-                    {unread > 0 && (
-                      <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-primary border-2 border-background" />
-                    )}
-                  </div>
-
-                  <div className="flex-1 min-w-0">
-                    <div className="flex justify-between items-center mb-0.5">
-                      <h3 className="font-semibold text-[17px] truncate">{name}</h3>
-                      <span className={`text-xs whitespace-nowrap ml-2 ${unread ? "text-primary font-medium" : "text-muted-foreground"}`}>
-                        {formatTime(chat.lastMessageAt)}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {priorityDot[lastPriority] && (
-                        <span className={`w-2 h-2 rounded-full flex-shrink-0 ${priorityDot[lastPriority]}`} />
-                      )}
-                      <p className={`text-[14px] truncate ${unread ? "text-white/90 font-medium" : "text-muted-foreground"}`}>
-                        {displayMessage}
-                      </p>
-                    </div>
-                  </div>
-
-                  {unread > 0 && (
-                    <div className="w-6 h-6 rounded-full bg-primary flex items-center justify-center text-[11px] font-bold text-white shadow-[0_0_10px_var(--glow-primary,rgba(124,77,255,0.4))] flex-shrink-0">
-                      {unread}
-                    </div>
+                  <Archive className="w-5 h-5 text-muted-foreground" />
+                  <span className="flex-1 text-left font-medium text-sm">Archived</span>
+                  <span className="text-xs text-muted-foreground bg-white/5 px-2 py-0.5 rounded-full">{archived.length}</span>
+                  {showArchived ? <ChevronDown className="w-4 h-4 text-muted-foreground" /> : <ChevronRight className="w-4 h-4 text-muted-foreground" />}
+                </button>
+                <AnimatePresence>
+                  {showArchived && (
+                    <motion.div
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: "auto", opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      className="overflow-hidden space-y-2 pt-2"
+                    >
+                      {archived.map((chat, i) => renderChat(chat, i))}
+                      <button
+                        onClick={() => archived.forEach(c => unarchiveChat(c.id, user!.uid))}
+                        className="w-full py-2 text-xs text-center text-muted-foreground hover:text-white transition-colors"
+                      >
+                        <ArchiveRestore className="w-3.5 h-3.5 inline mr-1" />
+                        Unarchive all
+                      </button>
+                    </motion.div>
                   )}
-                </motion.div>
-              );
-            })}
+                </AnimatePresence>
+              </div>
+            )}
           </div>
         )}
       </div>

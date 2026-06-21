@@ -13,7 +13,7 @@ export function BottomNav() {
 
   return (
     <div className="fixed bottom-0 left-0 right-0 z-50 flex justify-center pb-safe">
-      <div className="w-full max-w-[430px] glass-card rounded-t-3xl border-b-0 px-6 py-4 flex justify-between items-center bg-surface/80 backdrop-blur-xl">
+      <div className="w-full max-w-[430px] lg:max-w-[800px] glass-card rounded-t-3xl border-b-0 px-6 py-4 flex justify-between items-center bg-surface/80 backdrop-blur-xl">
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = location === item.path || location.startsWith(item.path + "/");

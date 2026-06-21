@@ -3,7 +3,10 @@ import {
   query, where, orderBy, limit, onSnapshot, addDoc, serverTimestamp,
   arrayUnion, Timestamp, writeBatch, increment,
 } from "firebase/firestore";
-import { db } from "./firebase";
+import {
+  ref, uploadBytesResumable, getDownloadURL,
+} from "firebase/storage";
+import { db, storage } from "./firebase";
 import type { User } from "firebase/auth";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -48,6 +51,8 @@ export interface Chat {
   groupName?: string;
   groupPhoto?: string | null;
   createdAt: Timestamp;
+  pinnedBy?: Record<string, boolean>;
+  archivedBy?: Record<string, boolean>;
 }
 
 export interface Message {
@@ -60,7 +65,14 @@ export interface Message {
   sentAt: Timestamp;
   readBy: string[];
   mediaURL?: string | null;
-  mediaType?: "image" | "video" | null;
+  mediaType?: "image" | "video" | "audio" | "file" | "location" | null;
+  fileName?: string | null;
+  mimeType?: string | null;
+  fileSize?: number | null;
+  duration?: number | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  thumbnailURL?: string | null;
 }
 
 export interface EmergencyAlert {
@@ -220,25 +232,38 @@ export async function respondToRequest(
   });
 
   if (accept) {
-    const chatRef = doc(collection(db, "chats"));
-    const [fromSnap, toSnap] = await Promise.all([
-      getDoc(doc(db, "users", fromUid)),
-      getDoc(doc(db, "users", toUid)),
-    ]);
-    const from = fromSnap.data() as UserProfile;
-    const to = toSnap.data() as UserProfile;
-
-    batch.set(chatRef, {
-      participants: [fromUid, toUid],
-      participantNames: { [fromUid]: from.displayName, [toUid]: to.displayName },
-      participantPhotos: { [fromUid]: from.photoURL ?? null, [toUid]: to.photoURL ?? null },
-      lastMessage: "",
-      lastMessageAt: serverTimestamp(), // Never null — null would hide chats from orderBy queries
-      lastMessageSenderId: "",
-      unreadCount: { [fromUid]: 0, [toUid]: 0 },
-      isGroup: false,
-      createdAt: serverTimestamp(),
+    // Check if a 1-on-1 chat already exists between these two users
+    const existingQuery = query(
+      collection(db, "chats"),
+      where("participants", "array-contains", fromUid)
+    );
+    const existingSnap = await getDocs(existingQuery);
+    const chatExists = existingSnap.docs.some(d => {
+      const data = d.data();
+      return !data.isGroup && data.participants?.includes(toUid);
     });
+
+    if (!chatExists) {
+      const chatRef = doc(collection(db, "chats"));
+      const [fromSnap, toSnap] = await Promise.all([
+        getDoc(doc(db, "users", fromUid)),
+        getDoc(doc(db, "users", toUid)),
+      ]);
+      const from = fromSnap.data() as UserProfile;
+      const to = toSnap.data() as UserProfile;
+
+      batch.set(chatRef, {
+        participants: [fromUid, toUid],
+        participantNames: { [fromUid]: from.displayName, [toUid]: to.displayName },
+        participantPhotos: { [fromUid]: from.photoURL ?? null, [toUid]: to.photoURL ?? null },
+        lastMessage: "",
+        lastMessageAt: serverTimestamp(),
+        lastMessageSenderId: "",
+        unreadCount: { [fromUid]: 0, [toUid]: 0 },
+        isGroup: false,
+        createdAt: serverTimestamp(),
+      });
+    }
   }
 
   await batch.commit();
@@ -284,6 +309,30 @@ export async function markChatRead(chatId: string, uid: string) {
   } catch { /* ignore */ }
 }
 
+export async function pinChat(chatId: string, uid: string) {
+  try {
+    await updateDoc(doc(db, "chats", chatId), { [`pinnedBy.${uid}`]: true });
+  } catch { /* ignore */ }
+}
+
+export async function unpinChat(chatId: string, uid: string) {
+  try {
+    await updateDoc(doc(db, "chats", chatId), { [`pinnedBy.${uid}`]: false });
+  } catch { /* ignore */ }
+}
+
+export async function archiveChat(chatId: string, uid: string) {
+  try {
+    await updateDoc(doc(db, "chats", chatId), { [`archivedBy.${uid}`]: true });
+  } catch { /* ignore */ }
+}
+
+export async function unarchiveChat(chatId: string, uid: string) {
+  try {
+    await updateDoc(doc(db, "chats", chatId), { [`archivedBy.${uid}`]: false });
+  } catch { /* ignore */ }
+}
+
 // ─── Messages ────────────────────────────────────────────────────────────────
 
 export function listenToMessages(chatId: string, cb: (msgs: Message[]) => void) {
@@ -308,10 +357,33 @@ export async function sendMessage(
   sender: UserProfile,
   text: string,
   priority: Message["priority"] = "normal",
-  recipientUids: string[]
+  recipientUids: string[],
+  options?: {
+    mediaURL?: string | null;
+    mediaType?: Message["mediaType"];
+    fileName?: string | null;
+    mimeType?: string | null;
+    fileSize?: number | null;
+    duration?: number | null;
+    latitude?: number | null;
+    longitude?: number | null;
+    thumbnailURL?: string | null;
+  }
 ) {
   const batch = writeBatch(db);
   const msgRef = doc(collection(db, "chats", chatId, "messages"));
+
+  const displayText = options?.mediaType === "location"
+    ? "📍 Location"
+    : options?.mediaType === "audio"
+    ? "🎵 Audio message"
+    : options?.mediaType === "file"
+    ? `📎 ${options.fileName || "File"}`
+    : options?.mediaType === "image"
+    ? "📷 Photo"
+    : options?.mediaType === "video"
+    ? "🎬 Video"
+    : text;
 
   batch.set(msgRef, {
     chatId,
@@ -321,12 +393,19 @@ export async function sendMessage(
     priority,
     sentAt: serverTimestamp(),
     readBy: [sender.uid],
-    mediaURL: null,
-    mediaType: null,
+    mediaURL: options?.mediaURL ?? null,
+    mediaType: options?.mediaType ?? null,
+    fileName: options?.fileName ?? null,
+    mimeType: options?.mimeType ?? null,
+    fileSize: options?.fileSize ?? null,
+    duration: options?.duration ?? null,
+    latitude: options?.latitude ?? null,
+    longitude: options?.longitude ?? null,
+    thumbnailURL: options?.thumbnailURL ?? null,
   });
 
   const unreadUpdates: Record<string, unknown> = {
-    lastMessage: priority !== "normal" ? `[${priority.replace("_", " ")}] ${text}` : text,
+    lastMessage: priority !== "normal" ? `[${priority.replace("_", " ")}] ${displayText}` : displayText,
     lastMessageAt: serverTimestamp(),
     lastMessageSenderId: sender.uid,
   };
@@ -355,6 +434,26 @@ export async function sendMessage(
   }
 
   await batch.commit();
+}
+
+export async function uploadFile(
+  file: File,
+  chatId: string,
+  uid: string,
+  onProgress?: (pct: number) => void
+): Promise<string> {
+  const path = `chat-media/${chatId}/${uid}_${Date.now()}_${file.name}`;
+  const storageRef = ref(storage, path);
+  const uploadTask = uploadBytesResumable(storageRef, file);
+
+  return new Promise((resolve, reject) => {
+    uploadTask.on(
+      "state_changed",
+      snap => onProgress?.(Math.round((snap.bytesTransferred / snap.totalBytes) * 100)),
+      reject,
+      async () => resolve(await getDownloadURL(uploadTask.snapshot.ref))
+    );
+  });
 }
 
 export async function markMessageRead(chatId: string, messageId: string, uid: string) {
@@ -500,6 +599,48 @@ export async function updateSettings(uid: string, settings: Partial<Pick<UserPro
   try {
     await updateDoc(doc(db, "users", uid), settings);
   } catch { /* ignore */ }
+}
+
+// ─── Group Chats ─────────────────────────────────────────────────────────────
+
+export async function createGroupChat(
+  creatorUid: string,
+  participantUids: string[],
+  groupName: string,
+  groupPhoto?: string | null
+): Promise<string> {
+  const allParticipants = [creatorUid, ...participantUids.filter(u => u !== creatorUid)];
+  const profileSnaps = await Promise.all(
+    allParticipants.map(uid => getDoc(doc(db, "users", uid)))
+  );
+  const names: Record<string, string> = {};
+  const photos: Record<string, string | null> = {};
+  const unread: Record<string, number> = {};
+  profileSnaps.forEach(snap => {
+    if (snap.exists()) {
+      const data = snap.data() as UserProfile;
+      names[snap.id] = data.displayName;
+      photos[snap.id] = data.photoURL ?? null;
+      unread[snap.id] = 0;
+    }
+  });
+
+  const chatRef = doc(collection(db, "chats"));
+  await setDoc(chatRef, {
+    participants: allParticipants,
+    participantNames: names,
+    participantPhotos: photos,
+    lastMessage: "",
+    lastMessageAt: serverTimestamp(),
+    lastMessageSenderId: "",
+    unreadCount: unread,
+    isGroup: true,
+    groupName,
+    groupPhoto: groupPhoto ?? null,
+    createdAt: serverTimestamp(),
+  });
+
+  return chatRef.id;
 }
 
 // ─── Invite ──────────────────────────────────────────────────────────────────

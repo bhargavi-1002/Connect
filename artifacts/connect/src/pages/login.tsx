@@ -4,7 +4,7 @@ import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ArrowRight, Eye, EyeOff, Loader2, Phone, Sparkles } from "lucide-react";
+import { ArrowRight, Eye, EyeOff, Loader2, Sparkles } from "lucide-react";
 import { AppLayout } from "@/components/app-layout";
 import { loginWithUsernameOrEmail, signInWithGoogle } from "@/lib/auth";
 import { getUserProfile } from "@/lib/firestore";
@@ -103,13 +103,13 @@ export default function LoginPage() {
         <p className="text-muted-foreground mb-8 text-sm">Sign in to stay connected with your family.</p>
 
         {/* Quick options row */}
-        <div className="grid grid-cols-2 gap-3 mb-6">
+        <div className="mb-6">
           <Button
             type="button"
             onClick={handleGoogle}
             disabled={googleLoading || loading}
             variant="outline"
-            className="h-12 rounded-2xl glass-card border-white/10 hover:bg-white/5 font-medium text-sm"
+            className="w-full h-12 rounded-2xl glass-card border-white/10 hover:bg-white/5 font-medium text-sm"
           >
             {googleLoading ? (
               <Loader2 className="w-4 h-4 animate-spin" />
@@ -123,16 +123,6 @@ export default function LoginPage() {
             )}
             Google
           </Button>
-          <Link href="/verify">
-            <Button
-              variant="outline"
-              className="w-full h-12 rounded-2xl glass-card border-white/10 hover:bg-white/5 font-medium text-sm"
-              disabled={loading || googleLoading}
-            >
-              <Phone className="w-4 h-4 mr-2" />
-              Mobile OTP
-            </Button>
-          </Link>
         </div>
 
         <div className="relative mb-6">

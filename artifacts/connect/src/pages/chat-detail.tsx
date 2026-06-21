@@ -1,16 +1,20 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Link, useRoute } from "wouter";
-import { ArrowLeft, Phone, Video, Paperclip, Send, MoreVertical, Mic } from "lucide-react";
+import { ArrowLeft, Phone, Video, Send, MoreVertical, Mic, Plus, Pin, Archive, PinOff, ArchiveRestore, Loader2, Play, Pause, FileText, MapPin, Image, Film } from "lucide-react";
 import { AppLayout } from "@/components/app-layout";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   getChat, listenToMessages, sendMessage, markChatRead,
   setTyping, listenToTyping, markMessageRead,
+  pinChat, unpinChat, archiveChat, unarchiveChat,
+  uploadFile,
   type Chat, type Message,
 } from "@/lib/firestore";
 import { getWallpaperStyle } from "@/lib/themes";
 import { formatDistanceToNow } from "date-fns";
+import { AttachmentSheet } from "@/components/attachment-sheet";
+import { useToast } from "@/hooks/use-toast";
 
 const priorityConfig: Record<string, { label: string; gradient: string; badge: string }> = {
   normal:    { label: "",           gradient: "from-primary to-secondary",         badge: "" },
@@ -20,18 +24,29 @@ const priorityConfig: Record<string, { label: string; gradient: string; badge: s
   emergency: { label: "Emergency",  gradient: "from-destructive to-rose-700",      badge: "bg-destructive/20 text-destructive" },
 };
 
+function getFileIcon(mimeType?: string | null) {
+  if (!mimeType) return FileText;
+  if (mimeType.startsWith("image/")) return Image;
+  if (mimeType.startsWith("video/")) return Film;
+  if (mimeType.includes("pdf")) return FileText;
+  return FileText;
+}
+
 export default function ChatDetailPage() {
   const [, params] = useRoute("/chats/:id");
   const chatId = params?.id || "";
   const { user, profile } = useAuth();
+  const { toast } = useToast();
 
   const [chat, setChat] = useState<Chat | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState("");
   const [selectedPriority, setSelectedPriority] = useState<Message["priority"]>("normal");
-  const [showPriority, setShowPriority] = useState(false);
   const [typingUids, setTypingUids] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showAttach, setShowAttach] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [showMenu, setShowMenu] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -70,23 +85,96 @@ export default function ChatDetailPage() {
     typingTimer.current = setTimeout(() => setTyping(chatId, user.uid, false), 2000);
   }, [chatId, user]);
 
-  const handleSend = async () => {
-    if (!inputText.trim() || !profile || !chat) return;
-    const text = inputText.trim();
+  const handleSend = async (text?: string) => {
+    const msg = (text ?? inputText).trim();
+    if (!msg || !profile || !chat) return;
     setInputText("");
     if (typingTimer.current) clearTimeout(typingTimer.current);
     if (user) setTyping(chatId, user.uid, false);
-    await sendMessage(chatId, profile, text, selectedPriority, chat.participants);
+    await sendMessage(chatId, profile, msg, selectedPriority, chat.participants);
     setSelectedPriority("normal");
+  };
+
+  const handleUploadAndSend = async (
+    file: File,
+    mediaType: Message["mediaType"],
+    extra?: { duration?: number; latitude?: number; longitude?: number }
+  ) => {
+    if (!profile || !chat) return;
+    setUploading(true);
+    try {
+      const url = await uploadFile(file, chatId, user!.uid);
+      const caption = inputText.trim() || "";
+      await sendMessage(chatId, profile, caption, selectedPriority, chat.participants, {
+        mediaURL: url,
+        mediaType,
+        fileName: file.name,
+        mimeType: file.type,
+        fileSize: file.size,
+        ...extra,
+      });
+      setInputText("");
+      setSelectedPriority("normal");
+    } catch {
+      toast({ title: "Upload failed", variant: "destructive" });
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleAudioSend = async (blob: Blob, duration: number) => {
+    const file = new File([blob], `voice_${Date.now()}.webm`, { type: blob.type });
+    await handleUploadAndSend(file, "audio", { duration });
+  };
+
+  const handleLocationSend = async () => {
+    if (!navigator.geolocation) {
+      toast({ title: "Location not supported on this device", variant: "destructive" });
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        if (!profile || !chat) return;
+        try {
+          await sendMessage(chatId, profile, "📍 Live Location", selectedPriority, chat.participants, {
+            mediaType: "location",
+            latitude: pos.coords.latitude,
+            longitude: pos.coords.longitude,
+          });
+          setSelectedPriority("normal");
+        } catch {
+          toast({ title: "Failed to send location", variant: "destructive" });
+        }
+      },
+      () => toast({ title: "Could not get location", variant: "destructive" }),
+      { enableHighAccuracy: true }
+    );
+  };
+
+  const [playingAudio, setPlayingAudio] = useState<string | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  const playAudio = (msgId: string, url: string) => {
+    if (playingAudio === msgId) {
+      audioRef.current?.pause();
+      setPlayingAudio(null);
+    } else {
+      audioRef.current?.pause();
+      const audio = new Audio(url);
+      audioRef.current = audio;
+      audio.play();
+      setPlayingAudio(msgId);
+      audio.onended = () => setPlayingAudio(null);
+    }
   };
 
   const otherUid = chat?.participants.find(uid => uid !== user?.uid) || "";
   const otherName = chat?.isGroup ? (chat.groupName || "Group") : (chat?.participantNames[otherUid] || "Unknown");
   const otherPhoto = chat?.isGroup ? chat.groupPhoto : chat?.participantPhotos[otherUid];
   const otherTyping = typingUids.length > 0;
-
-  // Apply selected wallpaper to the messages area
   const wallpaperStyle = getWallpaperStyle(profile?.chatWallpaper || "none");
+  const isPinned = chat?.pinnedBy?.[user?.uid || ""];
+  const isArchived = chat?.archivedBy?.[user?.uid || ""];
 
   if (loading) {
     return (
@@ -100,7 +188,6 @@ export default function ChatDetailPage() {
 
   return (
     <AppLayout showBottomNav={false}>
-      {/* Header */}
       <header className="sticky top-0 z-40 bg-surface/90 backdrop-blur-xl border-b border-white/5 px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Link href="/chats" className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors">
@@ -131,17 +218,47 @@ export default function ChatDetailPage() {
           <button className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-white/5 transition-colors">
             <Video className="w-5 h-5" />
           </button>
-          <button className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-white/5 transition-colors text-muted-foreground">
-            <MoreVertical className="w-5 h-5" />
-          </button>
+          <div className="relative">
+            <button
+              onClick={() => setShowMenu(v => !v)}
+              className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-white/5 transition-colors text-muted-foreground"
+            >
+              <MoreVertical className="w-5 h-5" />
+            </button>
+            <AnimatePresence>
+              {showMenu && (
+                <motion.div
+                  initial={{ opacity: 0, y: -8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -8 }}
+                  className="absolute right-0 top-full mt-1 w-48 bg-card border border-white/10 rounded-2xl shadow-2xl overflow-hidden z-50"
+                >
+                  {isPinned ? (
+                    <button onClick={() => { unpinChat(chatId, user!.uid); setShowMenu(false); }} className="w-full flex items-center gap-3 px-4 py-3 text-sm hover:bg-white/5 transition-colors">
+                      <PinOff className="w-4 h-4 text-muted-foreground" /> Unpin Chat
+                    </button>
+                  ) : (
+                    <button onClick={() => { pinChat(chatId, user!.uid); setShowMenu(false); }} className="w-full flex items-center gap-3 px-4 py-3 text-sm hover:bg-white/5 transition-colors">
+                      <Pin className="w-4 h-4 text-muted-foreground" /> Pin Chat
+                    </button>
+                  )}
+                  {isArchived ? (
+                    <button onClick={() => { unarchiveChat(chatId, user!.uid); setShowMenu(false); }} className="w-full flex items-center gap-3 px-4 py-3 text-sm hover:bg-white/5 transition-colors">
+                      <ArchiveRestore className="w-4 h-4 text-muted-foreground" /> Unarchive
+                    </button>
+                  ) : (
+                    <button onClick={() => { archiveChat(chatId, user!.uid); setShowMenu(false); }} className="w-full flex items-center gap-3 px-4 py-3 text-sm hover:bg-white/5 transition-colors">
+                      <Archive className="w-4 h-4 text-muted-foreground" /> Archive Chat
+                    </button>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
         </div>
       </header>
 
-      {/* Messages — wallpaper applied here */}
-      <div
-        className="flex-1 overflow-y-auto px-4 py-6 space-y-4"
-        style={wallpaperStyle}
-      >
+      <div className="flex-1 overflow-y-auto px-4 py-6 space-y-4" style={wallpaperStyle}>
         {messages.length === 0 && (
           <motion.div
             initial={{ opacity: 0 }}
@@ -150,14 +267,10 @@ export default function ChatDetailPage() {
           >
             <div className="relative w-32 h-32 mb-4">
               <div className="absolute inset-0 bg-primary/20 blur-[30px] rounded-full" />
-              <img
-                src="/signup-wave.png"
-                alt="Say hello"
-                className="relative z-10 w-full h-full object-contain drop-shadow-2xl"
-                onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
-              />
+              <img src="/signup-wave.png" alt="Say hello" className="relative z-10 w-full h-full object-contain drop-shadow-2xl"
+                onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
             </div>
-            <p className="text-muted-foreground text-sm">You're connected! 🎉</p>
+            <p className="text-muted-foreground text-sm">You're connected!</p>
             <p className="text-muted-foreground/60 text-xs mt-1">Say hello to start your conversation</p>
           </motion.div>
         )}
@@ -194,13 +307,87 @@ export default function ChatDetailPage() {
                     {pConfig.label}
                   </div>
                 )}
-                <div className={`px-4 py-3 text-[15px] leading-relaxed ${
-                  isMine
-                    ? `bg-gradient-to-br ${pConfig.gradient} text-white rounded-2xl rounded-br-sm shadow-lg`
-                    : "bg-card/80 backdrop-blur-sm text-white rounded-2xl rounded-bl-sm border border-white/5"
-                }`}>
-                  {msg.text}
-                </div>
+
+                {/* Media: Image */}
+                {msg.mediaType === "image" && msg.mediaURL && (
+                  <div className={`overflow-hidden ${isMine ? "rounded-2xl rounded-br-sm" : "rounded-2xl rounded-bl-sm"} mb-1 border border-white/10`}
+                    onClick={() => msg.mediaURL && window.open(msg.mediaURL, "_blank")}>
+                    <img src={msg.mediaURL} alt={msg.text || "Image"} className="max-w-full max-h-72 object-cover cursor-pointer hover:opacity-95 transition-opacity" loading="lazy" />
+                  </div>
+                )}
+
+                {/* Media: Video */}
+                {msg.mediaType === "video" && msg.mediaURL && (
+                  <div className={`overflow-hidden ${isMine ? "rounded-2xl rounded-br-sm" : "rounded-2xl rounded-bl-sm"} mb-1 border border-white/10 bg-black/40`}>
+                    <video src={msg.mediaURL} controls className="max-w-full max-h-72" preload="metadata">
+                      <source src={msg.mediaURL} type={msg.mimeType || "video/mp4"} />
+                    </video>
+                  </div>
+                )}
+
+                {/* Media: Audio */}
+                {msg.mediaType === "audio" && msg.mediaURL && (
+                  <div className={`px-4 py-3 ${isMine ? `bg-gradient-to-br ${pConfig.gradient} text-white rounded-2xl rounded-br-sm` : "bg-card/80 backdrop-blur-sm rounded-2xl rounded-bl-sm border border-white/5"} mb-1`}>
+                    <button
+                      onClick={() => playAudio(msg.id, msg.mediaURL!)}
+                      className="flex items-center gap-3"
+                    >
+                      {playingAudio === msg.id ? (
+                        <Pause className="w-8 h-8 flex-shrink-0" />
+                      ) : (
+                        <Play className="w-8 h-8 flex-shrink-0" />
+                      )}
+                      <div className="flex flex-col">
+                        <span className="text-sm font-medium">Voice message</span>
+                        {msg.duration && <span className="text-xs opacity-70">{Math.floor(msg.duration / 60)}:{(msg.duration % 60).toString().padStart(2, "0")}</span>}
+                      </div>
+                    </button>
+                  </div>
+                )}
+
+                {/* Media: File */}
+                {msg.mediaType === "file" && msg.mediaURL && (
+                  <a
+                    href={msg.mediaURL}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`flex items-center gap-3 px-4 py-3 ${isMine ? `bg-gradient-to-br ${pConfig.gradient} text-white rounded-2xl rounded-br-sm` : "bg-card/80 backdrop-blur-sm rounded-2xl rounded-bl-sm border border-white/5"} mb-1 hover:opacity-90 transition-opacity`}
+                  >
+                    <FileText className="w-8 h-8 flex-shrink-0" />
+                    <div className="flex flex-col min-w-0">
+                      <span className="text-sm font-medium truncate">{msg.fileName || "Document"}</span>
+                      {msg.fileSize && <span className="text-xs opacity-70">{(msg.fileSize / 1024 / 1024).toFixed(1)} MB</span>}
+                    </div>
+                  </a>
+                )}
+
+                {/* Media: Location */}
+                {msg.mediaType === "location" && msg.latitude && msg.longitude && (
+                  <a
+                    href={`https://www.google.com/maps?q=${msg.latitude},${msg.longitude}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`flex items-center gap-3 px-4 py-3 ${isMine ? `bg-gradient-to-br ${pConfig.gradient} text-white rounded-2xl rounded-br-sm` : "bg-card/80 backdrop-blur-sm rounded-2xl rounded-bl-sm border border-white/5"} mb-1 hover:opacity-90 transition-opacity`}
+                  >
+                    <MapPin className="w-8 h-8 flex-shrink-0" />
+                    <div className="flex flex-col">
+                      <span className="text-sm font-medium">Live Location</span>
+                      <span className="text-xs opacity-70">View on Google Maps</span>
+                    </div>
+                  </a>
+                )}
+
+                {/* Text content */}
+                {msg.text && msg.mediaType !== "location" && (
+                  <div className={`px-4 py-3 text-[15px] leading-relaxed ${
+                    isMine
+                      ? `bg-gradient-to-br ${pConfig.gradient} text-white rounded-2xl rounded-br-sm shadow-lg`
+                      : "bg-card/80 backdrop-blur-sm text-white rounded-2xl rounded-bl-sm border border-white/5"
+                  }`}>
+                    {msg.text}
+                  </div>
+                )}
+
                 <div className="flex items-center gap-1 mt-1 px-1">
                   <span className="text-[11px] text-muted-foreground">
                     {msg.sentAt?.toDate ? formatDistanceToNow(msg.sentAt.toDate(), { addSuffix: true }) : ""}
@@ -235,51 +422,26 @@ export default function ChatDetailPage() {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input area */}
       <div className="bg-surface/95 backdrop-blur-xl border-t border-white/5 p-4 flex flex-col gap-2">
-        <AnimatePresence>
-          {showPriority && (
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 10 }}
-              className="flex gap-2 overflow-x-auto pb-1"
-            >
-              {(Object.entries(priorityConfig) as [Message["priority"], typeof priorityConfig[string]][]).map(([key, cfg]) => (
-                <button
-                  key={key}
-                  onClick={() => { setSelectedPriority(key); setShowPriority(false); }}
-                  className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${
-                    selectedPriority === key
-                      ? `bg-gradient-to-r ${cfg.gradient} text-white border-transparent`
-                      : "border-white/10 text-muted-foreground hover:text-white"
-                  }`}
-                >
-                  {key === "normal" ? "Normal" : cfg.label}
-                </button>
-              ))}
-            </motion.div>
-          )}
-        </AnimatePresence>
+        {selectedPriority !== "normal" && (
+          <div className="flex items-center gap-2 px-1">
+            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${priorityConfig[selectedPriority]?.badge}`}>
+              {priorityConfig[selectedPriority]?.label}
+            </span>
+            <button onClick={() => setSelectedPriority("normal")} className="text-[10px] text-muted-foreground hover:text-white">Clear</button>
+          </div>
+        )}
 
         <div className="flex items-end gap-2">
           <button
-            onClick={() => setShowPriority(v => !v)}
-            className={`w-10 h-10 flex-shrink-0 rounded-full flex items-center justify-center transition-colors ${
-              selectedPriority !== "normal"
-                ? `bg-gradient-to-br ${priorityConfig[selectedPriority]?.gradient} text-white`
-                : "text-muted-foreground hover:text-white"
-            }`}
+            onClick={() => setShowAttach(true)}
+            className="w-10 h-10 flex-shrink-0 rounded-full flex items-center justify-center transition-colors text-muted-foreground hover:text-white hover:bg-white/5"
           >
-            <Paperclip className="w-5 h-5" />
+            <Plus className="w-5 h-5" />
           </button>
 
           <div className="flex-1 bg-white/5 border border-white/10 rounded-3xl flex items-center px-2 py-1 min-h-[44px]">
-            {selectedPriority !== "normal" && (
-              <span className={`ml-2 text-[10px] font-bold px-2 py-0.5 rounded-full ${priorityConfig[selectedPriority]?.badge}`}>
-                {priorityConfig[selectedPriority]?.label}
-              </span>
-            )}
+            {uploading && <Loader2 className="w-4 h-4 animate-spin text-primary ml-2" />}
             <textarea
               value={inputText}
               onChange={(e) => handleInputChange(e.target.value)}
@@ -294,19 +456,30 @@ export default function ChatDetailPage() {
 
           {inputText.trim() ? (
             <motion.button
-              onClick={handleSend}
+              onClick={() => handleSend()}
               whileTap={{ scale: 0.9 }}
               className="w-11 h-11 flex-shrink-0 rounded-full bg-primary flex items-center justify-center text-white shadow-[0_0_16px_var(--glow-primary,rgba(124,77,255,0.4))]"
             >
               <Send className="w-5 h-5 ml-0.5" />
             </motion.button>
           ) : (
-            <button className="w-11 h-11 flex-shrink-0 rounded-full bg-white/10 flex items-center justify-center text-white transition-all">
+            <button className="w-11 h-11 flex-shrink-0 rounded-full bg-white/10 flex items-center justify-center text-white transition-all opacity-50">
               <Mic className="w-5 h-5" />
             </button>
           )}
         </div>
       </div>
+
+      <AttachmentSheet
+        open={showAttach}
+        onClose={() => setShowAttach(false)}
+        onSelectMedia={(file) => handleUploadAndSend(file, file.type.startsWith("video/") ? "video" : "image")}
+        onSelectDocument={(file) => handleUploadAndSend(file, "file")}
+        onSelectAudio={handleAudioSend}
+        onSelectLocation={handleLocationSend}
+        onSelectPriority={(p) => { setSelectedPriority(p); setShowAttach(false); }}
+        uploading={uploading}
+      />
     </AppLayout>
   );
 }

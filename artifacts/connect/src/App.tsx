@@ -10,7 +10,6 @@ import LandingPage from "@/pages/landing";
 import OnboardingPage from "@/pages/onboarding";
 import SignupPage from "@/pages/signup";
 import SetupProfilePage from "@/pages/setup-profile";
-import VerifyPage from "@/pages/verify";
 import LoginPage from "@/pages/login";
 import ChatsPage from "@/pages/chats";
 import ChatDetailPage from "@/pages/chat-detail";
@@ -19,6 +18,7 @@ import ThemesPage from "@/pages/themes";
 import SettingsPage from "@/pages/settings";
 import DevicesPage from "@/pages/devices";
 import AutoLogoutPage from "@/pages/auto-logout";
+import CreateGroupPage from "@/pages/create-group";
 import ConnectionsPage from "@/pages/connections";
 import AlertsPage from "@/pages/alerts";
 import ProfilePage from "@/pages/profile";
@@ -60,7 +60,6 @@ function Router() {
       <Route path="/onboarding" component={OnboardingPage} />
       <Route path="/signup" component={SignupPage} />
       <Route path="/setup-profile" component={SetupProfilePage} />
-      <Route path="/verify" component={VerifyPage} />
       <Route path="/login" component={LoginPage} />
       <Route path="/invite/:username" component={InvitePage} />
 
@@ -85,6 +84,9 @@ function Router() {
       </Route>
       <Route path="/settings/auto-logout">
         {() => <ProtectedRoute component={AutoLogoutPage} />}
+      </Route>
+      <Route path="/create-group">
+        {() => <ProtectedRoute component={CreateGroupPage} />}
       </Route>
       <Route path="/connections">
         {() => <ProtectedRoute component={ConnectionsPage} />}

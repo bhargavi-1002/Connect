@@ -79,21 +79,6 @@ export default function OnboardingPage() {
             Continue with Google
           </Button>
 
-          {/* Phone OTP */}
-          <Link href="/verify" className="w-full">
-            <Button
-              variant="outline"
-              className="w-full h-14 rounded-2xl glass-card border-white/10 hover:bg-white/5 font-medium text-base"
-              disabled={loading}
-            >
-              <svg className="w-5 h-5 mr-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <rect x="5" y="2" width="14" height="20" rx="2" />
-                <line x1="12" y1="18" x2="12.01" y2="18" />
-              </svg>
-              Continue with Mobile OTP
-            </Button>
-          </Link>
-
           {/* Username / Email login */}
           <Link href="/login" className="w-full">
             <Button

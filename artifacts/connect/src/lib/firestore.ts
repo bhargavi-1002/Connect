@@ -4,7 +4,7 @@ import {
   arrayUnion, Timestamp, writeBatch, increment,
 } from "firebase/firestore";
 import {
-  ref, uploadBytesResumable, getDownloadURL,
+  ref, uploadBytesResumable, uploadBytes, getDownloadURL,
 } from "firebase/storage";
 import { db, storage } from "./firebase";
 import type { User } from "firebase/auth";
@@ -38,6 +38,8 @@ export interface ContactRequest {
   createdAt: Timestamp;
 }
 
+export type ChatCategory = "normal" | "important" | "groups" | "emergency";
+
 export interface Chat {
   id: string;
   participants: string[];
@@ -53,6 +55,7 @@ export interface Chat {
   createdAt: Timestamp;
   pinnedBy?: Record<string, boolean>;
   archivedBy?: Record<string, boolean>;
+  category?: ChatCategory;
 }
 
 export interface Message {
@@ -333,6 +336,12 @@ export async function unarchiveChat(chatId: string, uid: string) {
   } catch { /* ignore */ }
 }
 
+export async function updateChatCategory(chatId: string, category: ChatCategory) {
+  try {
+    await updateDoc(doc(db, "chats", chatId), { category });
+  } catch { /* ignore */ }
+}
+
 export async function deleteChat(chatId: string) {
   try {
     await deleteDoc(doc(db, "chats", chatId));
@@ -366,7 +375,7 @@ export function listenToMessages(chatId: string, cb: (msgs: Message[]) => void) 
     const q = query(
       collection(db, "chats", chatId, "messages"),
       orderBy("sentAt", "asc"),
-      limit(100)
+      limit(500)
     );
     return onSnapshot(q,
       snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Message)),
@@ -471,16 +480,29 @@ export async function uploadFile(
   const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
   const path = `chat-media/${chatId}/${uid}_${Date.now()}_${safeName}`;
   const storageRef = ref(storage, path);
-  const uploadTask = uploadBytesResumable(storageRef, file);
 
-  return new Promise((resolve, reject) => {
-    uploadTask.on(
-      "state_changed",
-      snap => onProgress?.(Math.round((snap.bytesTransferred / snap.totalBytes) * 100)),
-      reject,
-      async () => resolve(await getDownloadURL(uploadTask.snapshot.ref))
-    );
-  });
+  // Try resumable upload with progress first
+  const uploadTask = uploadBytesResumable(storageRef, file);
+  try {
+    const snapshot = await new Promise<{ ref: import("firebase/storage").StorageReference; metadata: import("firebase/storage").FullMetadata }>((resolve, reject) => {
+      uploadTask.on(
+        "state_changed",
+        snap => onProgress?.(Math.round((snap.bytesTransferred / snap.totalBytes) * 100)),
+        () => reject(new Error("Resumable upload failed")),
+        () => resolve({ ref: uploadTask.snapshot.ref, metadata: uploadTask.snapshot.metadata })
+      );
+    });
+    return await getDownloadURL(snapshot.ref);
+  } catch {
+    // Fallback: try simple upload (bypasses some CORS issues)
+    try {
+      const snapshot = await uploadBytes(storageRef, file);
+      return await getDownloadURL(snapshot.ref);
+    } catch (fallbackErr) {
+      console.error("Upload fallback also failed:", fallbackErr);
+      throw new Error("File upload failed. Make sure Firebase Storage is enabled in your project and CORS is configured.");
+    }
+  }
 }
 
 export async function markMessageRead(chatId: string, messageId: string, uid: string) {

@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Link, useRoute, useLocation } from "wouter";
-import { ArrowLeft, Phone, Video, Send, MoreVertical, Mic, Plus, Pin, Archive, PinOff, ArchiveRestore, Loader2, Play, Pause, FileText, MapPin, Image, Film, Trash2, Eraser } from "lucide-react";
+import { ArrowLeft, Phone, Video, Send, MoreVertical, Mic, Plus, Pin, Archive, PinOff, ArchiveRestore, Loader2, Play, Pause, FileText, MapPin, Image, Film, Trash2, Eraser, Tag } from "lucide-react";
 import { AppLayout } from "@/components/app-layout";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/contexts/AuthContext";
@@ -9,8 +9,9 @@ import {
   setTyping, listenToTyping, markMessageRead,
   pinChat, unpinChat, archiveChat, unarchiveChat,
   deleteChat, clearChatMessages,
-  uploadFile,
-  type Chat, type Message,
+  uploadFile, updateChatCategory,
+  getUserProfile,
+  type Chat, type Message, type ChatCategory, type UserProfile,
 } from "@/lib/firestore";
 import { getWallpaperStyle } from "@/lib/themes";
 import { formatDistanceToNow } from "date-fns";
@@ -21,6 +22,7 @@ import {
   AlertDialogTitle, AlertDialogDescription, AlertDialogFooter,
   AlertDialogAction, AlertDialogCancel,
 } from "@/components/ui/alert-dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 
 const priorityConfig: Record<string, { label: string; gradient: string; badge: string }> = {
   normal:    { label: "",           gradient: "from-primary to-secondary",         badge: "" },
@@ -55,6 +57,10 @@ export default function ChatDetailPage() {
   const [showMenu, setShowMenu] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
+  const [showProfilePopup, setShowProfilePopup] = useState(false);
+  const [otherProfile, setOtherProfile] = useState<UserProfile | null>(null);
+  const [profileLoading, setProfileLoading] = useState(false);
+  const [showCategoryPicker, setShowCategoryPicker] = useState(false);
   const [, navigate] = useLocation();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -111,11 +117,12 @@ export default function ChatDetailPage() {
   ) => {
     if (!profile || !chat) return;
     setUploading(true);
+    let uploadedUrl: string | null = null;
     try {
-      const url = await uploadFile(file, chatId, user!.uid);
+      uploadedUrl = await uploadFile(file, chatId, user!.uid);
       const caption = inputText.trim() || "";
       await sendMessage(chatId, profile, caption, selectedPriority, chat.participants, {
-        mediaURL: url,
+        mediaURL: uploadedUrl,
         mediaType,
         fileName: file.name,
         mimeType: file.type,
@@ -124,8 +131,23 @@ export default function ChatDetailPage() {
       });
       setInputText("");
       setSelectedPriority("normal");
-    } catch {
-      toast({ title: "Upload failed", variant: "destructive" });
+    } catch (err) {
+      console.error("Upload/send error:", err);
+      const msg = err instanceof Error ? err.message : "Could not upload file.";
+      // Try to send as text-only fallback
+      if (err instanceof Error && err.message.includes("CORS")) {
+        toast({ title: "Upload failed", description: msg, variant: "destructive" });
+      } else {
+        // Attempt text-only send as fallback
+        try {
+          const fileName = file.name || "";
+          const fallbackText = `[${mediaType || "file"}] ${fileName}`;
+          await sendMessage(chatId, profile, fallbackText, selectedPriority, chat.participants);
+          toast({ title: "Sent as text", description: "Media upload unavailable, sent description instead." });
+        } catch {
+          toast({ title: "Failed to send", variant: "destructive" });
+        }
+      }
     } finally {
       setUploading(false);
     }
@@ -169,6 +191,31 @@ export default function ChatDetailPage() {
     await clearChatMessages(chatId);
     toast({ title: "Chat cleared" });
   };
+
+  const handleShowProfile = useCallback(async () => {
+    const targetUid = chat?.participants.find(uid => uid !== user?.uid) || "";
+    if (!targetUid) return;
+    setShowProfilePopup(true);
+    setProfileLoading(true);
+    const prof = await getUserProfile(targetUid);
+    setOtherProfile(prof);
+    setProfileLoading(false);
+  }, [chat, user]);
+
+  const handleSetCategory = useCallback(async (cat: ChatCategory) => {
+    await updateChatCategory(chatId, cat);
+    setChat(prev => prev ? { ...prev, category: cat } : prev);
+    setShowCategoryPicker(false);
+    setShowMenu(false);
+    toast({ title: cat === "normal" ? "Category removed" : `Chat set to ${cat}` });
+  }, [chatId, toast]);
+
+  const CATEGORIES: { key: ChatCategory; label: string; color: string }[] = [
+    { key: "normal", label: "None", color: "text-muted-foreground" },
+    { key: "important", label: "Important", color: "text-warning" },
+    { key: "groups", label: "Groups", color: "text-info" },
+    { key: "emergency", label: "Emergency", color: "text-destructive" },
+  ];
 
   const [playingAudio, setPlayingAudio] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -224,7 +271,7 @@ export default function ChatDetailPage() {
           <Link href="/chats" className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors">
             <ArrowLeft className="w-5 h-5 text-white" />
           </Link>
-          <div className="flex items-center gap-3">
+          <button onClick={handleShowProfile} className="flex items-center gap-3 hover:opacity-80 transition-opacity">
             {otherPhoto ? (
               <img src={otherPhoto} alt={otherName} className="w-10 h-10 rounded-full object-cover border border-white/10" />
             ) : (
@@ -232,7 +279,7 @@ export default function ChatDetailPage() {
                 {otherName.charAt(0).toUpperCase()}
               </div>
             )}
-            <div>
+            <div className="text-left">
               <h2 className="font-semibold text-[16px] leading-tight text-white">{otherName}</h2>
               {otherTyping ? (
                 <span className="text-xs text-primary font-medium">typing…</span>
@@ -240,7 +287,7 @@ export default function ChatDetailPage() {
                 <span className="text-xs text-muted-foreground">connected</span>
               )}
             </div>
-          </div>
+          </button>
         </div>
         <div className="flex items-center gap-1 text-primary">
           <button className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-white/5 transition-colors">
@@ -282,6 +329,13 @@ export default function ChatDetailPage() {
                       <Archive className="w-4 h-4 text-muted-foreground" /> Archive Chat
                     </button>
                   )}
+                  <div className="border-t border-white/10 my-1" />
+                  <button
+                    onClick={() => { setShowCategoryPicker(true); setShowMenu(false); }}
+                    className="w-full flex items-center gap-3 px-4 py-3 text-sm hover:bg-white/5 transition-colors"
+                  >
+                    <Tag className="w-4 h-4 text-muted-foreground" /> {chat.category && chat.category !== "normal" ? `Category: ${chat.category}` : "Set Category"}
+                  </button>
                   <div className="border-t border-white/10 my-1" />
                   <button
                     onClick={() => { setShowMenu(false); setConfirmClear(true); }}
@@ -466,7 +520,7 @@ export default function ChatDetailPage() {
         <div ref={messagesEndRef} />
       </div>
 
-      <div className="bg-surface/95 backdrop-blur-xl border-t border-white/5 p-4 flex flex-col gap-2">
+      <div className="bg-surface/95 backdrop-blur-xl border-t border-white/5 p-4 flex flex-col gap-2 flex-shrink-0 sticky bottom-0 z-30">
         {selectedPriority !== "normal" && (
           <div className="flex items-center gap-2 px-1">
             <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${priorityConfig[selectedPriority]?.badge}`}>
@@ -524,6 +578,70 @@ export default function ChatDetailPage() {
         onSelectPriority={(p) => { setSelectedPriority(p); setShowAttach(false); }}
         uploading={uploading}
       />
+
+      {/* Category Picker */}
+      <Dialog open={showCategoryPicker} onOpenChange={setShowCategoryPicker}>
+        <DialogContent className="bg-card border border-white/10 rounded-3xl max-w-xs">
+          <DialogHeader>
+            <DialogTitle>Chat Category</DialogTitle>
+            <DialogDescription>Tag this chat for easy filtering</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 py-2">
+            {CATEGORIES.map(cat => (
+              <button
+                key={cat.key}
+                onClick={() => handleSetCategory(cat.key)}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-sm font-medium transition-all ${
+                  chat?.category === cat.key
+                    ? "bg-primary/20 text-primary border border-primary/30"
+                    : "hover:bg-white/5 text-white border border-transparent"
+                }`}
+              >
+                <span className={`w-2 h-2 rounded-full ${cat.color.replace("text-", "bg-")}`} />
+                {cat.label}
+                {chat?.category === cat.key && <span className="ml-auto text-xs">Active</span>}
+              </button>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Other User Profile Popup */}
+      <Dialog open={showProfilePopup} onOpenChange={setShowProfilePopup}>
+        <DialogContent className="bg-card border border-white/10 rounded-3xl max-w-sm">
+          <DialogHeader>
+            <DialogTitle>User Profile</DialogTitle>
+          </DialogHeader>
+          {profileLoading ? (
+            <div className="flex items-center justify-center py-10">
+              <Loader2 className="w-6 h-6 animate-spin text-primary" />
+            </div>
+          ) : otherProfile ? (
+            <div className="flex flex-col items-center py-4">
+              {otherProfile.photoURL ? (
+                <img src={otherProfile.photoURL} alt={otherProfile.displayName} className="w-24 h-24 rounded-full object-cover border-4 border-white/10 mb-4" />
+              ) : (
+                <div className="w-24 h-24 rounded-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center text-white text-3xl font-bold mb-4 border-4 border-white/10">
+                  {otherProfile.displayName.charAt(0).toUpperCase()}
+                </div>
+              )}
+              <h3 className="text-xl font-bold">{otherProfile.displayName}</h3>
+              <p className="text-sm text-muted-foreground">@{otherProfile.username}</p>
+              {otherProfile.bio && (
+                <p className="text-sm text-center mt-3 text-muted-foreground/80 px-4">"{otherProfile.bio}"</p>
+              )}
+              <div className="flex items-center gap-2 mt-4 text-xs">
+                <span className={`w-2 h-2 rounded-full ${otherProfile.online ? "bg-success animate-pulse" : "bg-muted-foreground"}`} />
+                <span className="text-muted-foreground">{otherProfile.online ? "Online" : "Offline"}</span>
+                <span className="text-muted-foreground/40 mx-1">·</span>
+                <span className="text-muted-foreground">{otherProfile.email || "No email"}</span>
+              </div>
+            </div>
+          ) : (
+            <p className="text-center py-6 text-muted-foreground text-sm">Could not load profile</p>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
         <AlertDialogContent>

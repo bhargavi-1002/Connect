@@ -18,6 +18,13 @@ const priorityDot: Record<string, string> = {
   normal: "",
 };
 
+const categoryDot: Record<string, string> = {
+  important: "bg-warning",
+  groups: "bg-info",
+  emergency: "bg-destructive",
+  normal: "",
+};
+
 function formatTime(ts: { toDate?: () => Date } | null | undefined) {
   if (!ts) return "";
   try {
@@ -51,9 +58,22 @@ export default function ChatsPage() {
       ? (chat.groupName || "Group")
       : (chat.participantNames[otherUid] || "Unknown");
     const matchesSearch = name.toLowerCase().includes(search.toLowerCase());
-    if (activeTab === "important") return matchesSearch && (chat.lastMessage.includes("[important]") || chat.lastMessage.includes("[urgent]"));
-    if (activeTab === "groups") return matchesSearch && chat.isGroup;
-    if (activeTab === "emergency") return matchesSearch && chat.lastMessage.includes("[emergency]");
+    if (activeTab === "important")
+      return matchesSearch && (
+        chat.category === "important" ||
+        chat.lastMessage.includes("[important]") ||
+        chat.lastMessage.includes("[urgent]")
+      );
+    if (activeTab === "groups")
+      return matchesSearch && (
+        chat.category === "groups" ||
+        chat.isGroup
+      );
+    if (activeTab === "emergency")
+      return matchesSearch && (
+        chat.category === "emergency" ||
+        chat.lastMessage.includes("[emergency]")
+      );
     return matchesSearch;
   };
 
@@ -108,7 +128,12 @@ export default function ChatsPage() {
 
         <div className="flex-1 min-w-0">
           <div className="flex justify-between items-center mb-0.5">
-            <h3 className="font-semibold text-[17px] truncate">{name}</h3>
+            <div className="flex items-center gap-1.5 min-w-0">
+              {chat.category && chat.category !== "normal" && (
+                <span className={`w-2 h-2 rounded-full flex-shrink-0 ${categoryDot[chat.category] || ""}`} title={chat.category} />
+              )}
+              <h3 className="font-semibold text-[17px] truncate">{name}</h3>
+            </div>
             <span className={`text-xs whitespace-nowrap ml-2 ${unread ? "text-primary font-medium" : "text-muted-foreground"}`}>
               {formatTime(chat.lastMessageAt)}
             </span>

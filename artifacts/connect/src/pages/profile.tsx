@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { Link } from "wouter";
-import { Settings, Edit3, QrCode, Share, Shield, Loader2, Camera } from "lucide-react";
+import { Settings, Edit3, QrCode, Share, Shield, Loader2, Camera, Lock, Mail } from "lucide-react";
 import { AppLayout } from "@/components/app-layout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,6 +8,8 @@ import { useAuth } from "@/contexts/AuthContext";
 import { updateUserProfile, generateInviteLink } from "@/lib/firestore";
 import { storage } from "@/lib/firebase";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import { sendPasswordResetEmail } from "firebase/auth";
+import { auth } from "@/lib/firebase";
 import { useToast } from "@/hooks/use-toast";
 import QRCodeDisplay from "@/components/qr-code-display";
 
@@ -59,6 +61,19 @@ export default function ProfilePage() {
       toast({ title: "Upload failed", variant: "destructive" });
     } finally {
       setUploading(false);
+    }
+  };
+
+  const handleChangePassword = async () => {
+    if (!user?.email) {
+      toast({ title: "No email on account", description: "You need an email to reset your password.", variant: "destructive" });
+      return;
+    }
+    try {
+      await sendPasswordResetEmail(auth, user.email);
+      toast({ title: "Password reset email sent", description: `Check ${user.email} for instructions.` });
+    } catch (err: unknown) {
+      toast({ title: "Failed to send reset email", description: err instanceof Error ? err.message : "Try again.", variant: "destructive" });
     }
   };
 
@@ -175,6 +190,18 @@ export default function ProfilePage() {
             className="h-14 rounded-2xl glass-card border-white/10 hover:bg-white/5 font-medium"
           >
             <Share className="w-5 h-5 mr-2 text-primary" /> Share Link
+          </Button>
+        </div>
+
+        <div className="space-y-3 mb-6">
+          <Button
+            onClick={handleChangePassword}
+            variant="outline"
+            className="w-full h-14 rounded-2xl glass-card border-white/10 hover:bg-white/5 font-medium flex items-center gap-3"
+          >
+            <Lock className="w-5 h-5 text-primary" />
+            <span className="flex-1 text-left">Change Password</span>
+            <Mail className="w-4 h-4 text-muted-foreground" />
           </Button>
         </div>
 

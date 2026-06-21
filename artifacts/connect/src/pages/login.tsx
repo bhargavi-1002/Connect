@@ -69,13 +69,38 @@ export default function LoginPage() {
 
   const handleForgotPassword = async () => {
     const { resetPassword } = await import("@/lib/auth");
-    if (!identifier.trim() || identifier.includes("@") === false) {
-      toast({ title: "Enter your email address first", variant: "destructive" });
+    const { getDoc, doc } = await import("firebase/firestore");
+    const { db } = await import("@/lib/firebase");
+
+    let email = identifier.trim();
+    if (!email) {
+      toast({ title: "Enter your username or email first", variant: "destructive" });
       return;
     }
+    // If it's a username (no @ or starts with @), resolve to email
+    const isUsername = email.startsWith("@") || !email.includes("@");
+    if (isUsername) {
+      const username = email.replace(/^@/, "").toLowerCase();
+      try {
+        const snap = await getDoc(doc(db, "usernames", username));
+        if (!snap.exists()) {
+          toast({ title: "Username not found", description: "No account found with that username.", variant: "destructive" });
+          return;
+        }
+        const data = snap.data() as { email?: string };
+        if (!data.email) {
+          toast({ title: "No email on account", description: "This account was created with Google or Phone. Use that method to sign in.", variant: "destructive" });
+          return;
+        }
+        email = data.email;
+      } catch {
+        toast({ title: "Error", description: "Could not look up username. Try using your email address.", variant: "destructive" });
+        return;
+      }
+    }
     try {
-      await resetPassword(identifier.trim());
-      toast({ title: "Reset link sent!", description: "Check your inbox." });
+      await resetPassword(email);
+      toast({ title: "Reset link sent!", description: `Check ${email} for instructions.` });
     } catch (err: unknown) {
       toast({ title: "Failed", description: err instanceof Error ? err.message : "Try again.", variant: "destructive" });
     }

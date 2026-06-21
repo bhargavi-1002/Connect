@@ -50,15 +50,26 @@ export default function ProfilePage() {
     const file = e.target.files?.[0];
     if (!file || !user) return;
     setUploading(true);
+    let timeoutId: ReturnType<typeof setTimeout>;
     try {
       const storageRef = ref(storage, `avatars/${user.uid}`);
-      await uploadBytes(storageRef, file);
+      const uploadPromise = uploadBytes(storageRef, file);
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error("timeout")), 15000);
+      });
+      await Promise.race([uploadPromise, timeoutPromise]);
+      clearTimeout(timeoutId!);
       const url = await getDownloadURL(storageRef);
       await updateUserProfile(user.uid, { photoURL: url });
       await refreshProfile();
       toast({ title: "Photo updated!" });
-    } catch {
-      toast({ title: "Upload failed", variant: "destructive" });
+    } catch (err) {
+      const isTimeout = err instanceof Error && err.message === "timeout";
+      if (isTimeout) {
+        toast({ title: "Upload timed out", description: "Check your connection and try again.", variant: "destructive" });
+      } else {
+        toast({ title: "Upload failed", description: "Make sure Firebase Storage is enabled in your project.", variant: "destructive" });
+      }
     } finally {
       setUploading(false);
     }

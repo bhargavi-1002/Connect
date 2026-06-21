@@ -117,9 +117,17 @@ export default function ChatDetailPage() {
   ) => {
     if (!profile || !chat) return;
     setUploading(true);
-    let uploadedUrl: string | null = null;
+
+    // Build upload promise with timeout so it never hangs forever
+    const uploadPromise = uploadFile(file, chatId, user!.uid);
+    let timeoutId: ReturnType<typeof setTimeout>;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(() => reject(new Error("timeout")), 30000);
+    });
+
     try {
-      uploadedUrl = await uploadFile(file, chatId, user!.uid);
+      const uploadedUrl = await Promise.race([uploadPromise, timeoutPromise]);
+      clearTimeout(timeoutId!);
       const caption = inputText.trim() || "";
       await sendMessage(chatId, profile, caption, selectedPriority, chat.participants, {
         mediaURL: uploadedUrl,
@@ -133,20 +141,24 @@ export default function ChatDetailPage() {
       setSelectedPriority("normal");
     } catch (err) {
       console.error("Upload/send error:", err);
-      const msg = err instanceof Error ? err.message : "Could not upload file.";
-      // Try to send as text-only fallback
-      if (err instanceof Error && err.message.includes("CORS")) {
-        toast({ title: "Upload failed", description: msg, variant: "destructive" });
-      } else {
-        // Attempt text-only send as fallback
-        try {
-          const fileName = file.name || "";
-          const fallbackText = `[${mediaType || "file"}] ${fileName}`;
-          await sendMessage(chatId, profile, fallbackText, selectedPriority, chat.participants);
-          toast({ title: "Sent as text", description: "Media upload unavailable, sent description instead." });
-        } catch {
-          toast({ title: "Failed to send", variant: "destructive" });
-        }
+      const isTimeout = err instanceof Error && err.message === "timeout";
+      // Attempt text-only send as fallback regardless
+      try {
+        const fileName = file.name || "";
+        const fallbackText = `[${mediaType || "file"}] ${fileName}`;
+        await sendMessage(chatId, profile, fallbackText, selectedPriority, chat.participants);
+        toast({
+          title: isTimeout ? "Upload timed out" : "Media upload failed",
+          description: isTimeout
+            ? "The upload took too long. " + (fileName ? `Sent "${fileName}" as text instead.` : "Sent as text instead.")
+            : "Sent file description as text instead.",
+        });
+      } catch {
+        toast({
+          title: "Failed to send",
+          description: isTimeout ? "Upload timed out and text fallback also failed." : "Could not upload file or send message.",
+          variant: "destructive",
+        });
       }
     } finally {
       setUploading(false);
@@ -266,7 +278,8 @@ export default function ChatDetailPage() {
 
   return (
     <AppLayout showBottomNav={false}>
-      <header className="sticky top-0 z-40 bg-surface/90 backdrop-blur-xl border-b border-white/5 px-4 py-3 flex items-center justify-between">
+      <div className="flex flex-col h-full">
+        <header className="sticky top-0 z-40 bg-surface/90 backdrop-blur-xl border-b border-white/5 px-4 py-3 flex items-center justify-between flex-shrink-0">
         <div className="flex items-center gap-3">
           <Link href="/chats" className="w-10 h-10 rounded-full flex items-center justify-center hover:bg-white/10 transition-colors">
             <ArrowLeft className="w-5 h-5 text-white" />
@@ -356,7 +369,7 @@ export default function ChatDetailPage() {
         </div>
       </header>
 
-      <div className="flex-1 overflow-y-auto px-4 py-6 space-y-4" style={wallpaperStyle}>
+      <div className="flex-1 overflow-y-auto min-h-0 px-4 py-6 space-y-4" style={wallpaperStyle}>
         {messages.length === 0 && (
           <motion.div
             initial={{ opacity: 0 }}
@@ -520,7 +533,7 @@ export default function ChatDetailPage() {
         <div ref={messagesEndRef} />
       </div>
 
-      <div className="bg-surface/95 backdrop-blur-xl border-t border-white/5 p-4 flex flex-col gap-2 flex-shrink-0 sticky bottom-0 z-30">
+      <div className="bg-surface/95 backdrop-blur-xl border-t border-white/5 p-4 flex flex-col gap-2 flex-shrink-0">
         {selectedPriority !== "normal" && (
           <div className="flex items-center gap-2 px-1">
             <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${priorityConfig[selectedPriority]?.badge}`}>
@@ -566,6 +579,8 @@ export default function ChatDetailPage() {
             </button>
           )}
         </div>
+      </div>
+
       </div>
 
       <AttachmentSheet

@@ -1,15 +1,9 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "name": "connect",
-  "framework": "vite",
   "installCommand": "pnpm install --no-frozen-lockfile",
-  "buildCommand": "pnpm --filter @workspace/connect build",
+  "buildCommand": "BASE_PATH=/ PORT=3000 pnpm --filter @workspace/connect build",
   "outputDirectory": "artifacts/connect/dist/public",
   "rewrites": [
     { "source": "/((?!api/).*)", "destination": "/" }
-  ],
-  "env": {
-    "PORT": "3000",
-    "BASE_PATH": "/"
-  }
+  ]
 }

@@ -187,13 +187,8 @@ export default function ChatDetailPage() {
     }
   };
 
-  const otherUid = chat?.participants.find(uid => uid !== user?.uid) || "";
-  const otherName = chat?.isGroup ? (chat.groupName || "Group") : (chat?.participantNames[otherUid] || "Unknown");
-  const otherPhoto = chat?.isGroup ? chat.groupPhoto : chat?.participantPhotos[otherUid];
   const otherTyping = typingUids.length > 0;
   const wallpaperStyle = getWallpaperStyle(profile?.chatWallpaper || "none");
-  const isPinned = chat?.pinnedBy?.[user?.uid || ""];
-  const isArchived = chat?.archivedBy?.[user?.uid || ""];
 
   if (loading) {
     return (
@@ -204,6 +199,23 @@ export default function ChatDetailPage() {
       </AppLayout>
     );
   }
+
+  if (!chat) {
+    return (
+      <AppLayout showBottomNav={false}>
+        <div className="flex-1 flex flex-col items-center justify-center p-6 gap-4">
+          <p className="text-muted-foreground text-sm">Chat not found</p>
+          <Link href="/chats" className="text-primary font-medium hover:underline text-sm">Go back to chats</Link>
+        </div>
+      </AppLayout>
+    );
+  }
+
+  const otherUid = chat.participants.find(uid => uid !== user?.uid) || "";
+  const otherName = chat.isGroup ? (chat.groupName || "Group") : (chat.participantNames[otherUid] || "Unknown");
+  const otherPhoto = chat.isGroup ? chat.groupPhoto : chat.participantPhotos[otherUid];
+  const isPinned = chat.pinnedBy?.[user?.uid || ""];
+  const isArchived = chat.archivedBy?.[user?.uid || ""];
 
   return (
     <AppLayout showBottomNav={false}>

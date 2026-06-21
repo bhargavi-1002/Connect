@@ -342,14 +342,20 @@ export async function deleteChat(chatId: string) {
 export async function clearChatMessages(chatId: string) {
   try {
     const msgsSnap = await getDocs(collection(db, "chats", chatId, "messages"));
-    const batch = writeBatch(db);
-    msgsSnap.docs.forEach(d => batch.delete(d.ref));
-    batch.update(doc(db, "chats", chatId), {
-      lastMessage: "",
-      lastMessageAt: serverTimestamp(),
-      lastMessageSenderId: "",
-    });
-    await batch.commit();
+    const docs = msgsSnap.docs;
+    for (let i = 0; i < docs.length; i += 499) {
+      const batch = writeBatch(db);
+      const chunk = docs.slice(i, i + 499);
+      chunk.forEach(d => batch.delete(d.ref));
+      if (i === 0) {
+        batch.update(doc(db, "chats", chatId), {
+          lastMessage: "",
+          lastMessageAt: serverTimestamp(),
+          lastMessageSenderId: "",
+        });
+      }
+      await batch.commit();
+    }
   } catch { /* ignore */ }
 }
 
@@ -462,7 +468,8 @@ export async function uploadFile(
   uid: string,
   onProgress?: (pct: number) => void
 ): Promise<string> {
-  const path = `chat-media/${chatId}/${uid}_${Date.now()}_${file.name}`;
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const path = `chat-media/${chatId}/${uid}_${Date.now()}_${safeName}`;
   const storageRef = ref(storage, path);
   const uploadTask = uploadBytesResumable(storageRef, file);
 

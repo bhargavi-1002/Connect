@@ -333,6 +333,26 @@ export async function unarchiveChat(chatId: string, uid: string) {
   } catch { /* ignore */ }
 }
 
+export async function deleteChat(chatId: string) {
+  try {
+    await deleteDoc(doc(db, "chats", chatId));
+  } catch { /* ignore */ }
+}
+
+export async function clearChatMessages(chatId: string) {
+  try {
+    const msgsSnap = await getDocs(collection(db, "chats", chatId, "messages"));
+    const batch = writeBatch(db);
+    msgsSnap.docs.forEach(d => batch.delete(d.ref));
+    batch.update(doc(db, "chats", chatId), {
+      lastMessage: "",
+      lastMessageAt: serverTimestamp(),
+      lastMessageSenderId: "",
+    });
+    await batch.commit();
+  } catch { /* ignore */ }
+}
+
 // ─── Messages ────────────────────────────────────────────────────────────────
 
 export function listenToMessages(chatId: string, cb: (msgs: Message[]) => void) {

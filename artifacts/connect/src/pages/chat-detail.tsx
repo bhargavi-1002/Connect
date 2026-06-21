@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Link, useRoute } from "wouter";
-import { ArrowLeft, Phone, Video, Send, MoreVertical, Mic, Plus, Pin, Archive, PinOff, ArchiveRestore, Loader2, Play, Pause, FileText, MapPin, Image, Film } from "lucide-react";
+import { Link, useRoute, useLocation } from "wouter";
+import { ArrowLeft, Phone, Video, Send, MoreVertical, Mic, Plus, Pin, Archive, PinOff, ArchiveRestore, Loader2, Play, Pause, FileText, MapPin, Image, Film, Trash2, Eraser } from "lucide-react";
 import { AppLayout } from "@/components/app-layout";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/contexts/AuthContext";
@@ -8,6 +8,7 @@ import {
   getChat, listenToMessages, sendMessage, markChatRead,
   setTyping, listenToTyping, markMessageRead,
   pinChat, unpinChat, archiveChat, unarchiveChat,
+  deleteChat, clearChatMessages,
   uploadFile,
   type Chat, type Message,
 } from "@/lib/firestore";
@@ -15,6 +16,11 @@ import { getWallpaperStyle } from "@/lib/themes";
 import { formatDistanceToNow } from "date-fns";
 import { AttachmentSheet } from "@/components/attachment-sheet";
 import { useToast } from "@/hooks/use-toast";
+import {
+  AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader,
+  AlertDialogTitle, AlertDialogDescription, AlertDialogFooter,
+  AlertDialogAction, AlertDialogCancel,
+} from "@/components/ui/alert-dialog";
 
 const priorityConfig: Record<string, { label: string; gradient: string; badge: string }> = {
   normal:    { label: "",           gradient: "from-primary to-secondary",         badge: "" },
@@ -47,6 +53,9 @@ export default function ChatDetailPage() {
   const [showAttach, setShowAttach] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [showMenu, setShowMenu] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmClear, setConfirmClear] = useState(false);
+  const [, navigate] = useLocation();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -151,6 +160,16 @@ export default function ChatDetailPage() {
     );
   };
 
+  const handleDeleteChat = async () => {
+    await deleteChat(chatId);
+    navigate("/chats");
+  };
+
+  const handleClearChat = async () => {
+    await clearChatMessages(chatId);
+    toast({ title: "Chat cleared" });
+  };
+
   const [playingAudio, setPlayingAudio] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
@@ -251,6 +270,19 @@ export default function ChatDetailPage() {
                       <Archive className="w-4 h-4 text-muted-foreground" /> Archive Chat
                     </button>
                   )}
+                  <div className="border-t border-white/10 my-1" />
+                  <button
+                    onClick={() => { setShowMenu(false); setConfirmClear(true); }}
+                    className="w-full flex items-center gap-3 px-4 py-3 text-sm hover:bg-white/5 transition-colors"
+                  >
+                    <Eraser className="w-4 h-4 text-muted-foreground" /> Clear Chat
+                  </button>
+                  <button
+                    onClick={() => { setShowMenu(false); setConfirmDelete(true); }}
+                    className="w-full flex items-center gap-3 px-4 py-3 text-sm text-destructive hover:bg-destructive/10 transition-colors"
+                  >
+                    <Trash2 className="w-4 h-4" /> Delete Chat
+                  </button>
                 </motion.div>
               )}
             </AnimatePresence>
@@ -480,6 +512,40 @@ export default function ChatDetailPage() {
         onSelectPriority={(p) => { setSelectedPriority(p); setShowAttach(false); }}
         uploading={uploading}
       />
+
+      <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Chat</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently remove this chat and all its messages. This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDeleteChat} className="bg-destructive hover:bg-destructive/90">
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={confirmClear} onOpenChange={setConfirmClear}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Clear Chat</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will remove all messages in this chat. The conversation will remain but appear empty.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleClearChat} className="bg-destructive hover:bg-destructive/90">
+              Clear
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </AppLayout>
   );
 }

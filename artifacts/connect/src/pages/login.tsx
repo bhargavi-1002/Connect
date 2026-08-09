@@ -57,8 +57,8 @@ export default function LoginPage() {
   const handleGoogle = async () => {
     setGoogleLoading(true);
     try {
-      const { isNew } = await signInWithGoogle();
-      setLocation(isNew ? "/setup-profile" : "/chats");
+      await signInWithGoogle();
+      // Browser will redirect, so no need to route here.
     } catch (err: unknown) {
       toast({
         title: "Google sign-in failed",

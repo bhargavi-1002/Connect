@@ -16,13 +16,11 @@ import { auth, db } from "./firebase";
 import { doc, getDoc } from "firebase/firestore";
 import { getUserProfile } from "./firestore";
 
-// ─── Google Sign-In ──────────────────────────────────────────────────────────
+import { signInWithRedirect } from "firebase/auth";
 
-export async function signInWithGoogle(): Promise<{ isNew: boolean }> {
+export async function signInWithGoogle(): Promise<void> {
   const provider = new GoogleAuthProvider();
-  const result = await signInWithPopup(auth, provider);
-  const existing = await getUserProfile(result.user.uid);
-  return { isNew: !existing };
+  await signInWithRedirect(auth, provider);
 }
 
 // ─── Guest Sign-In ───────────────────────────────────────────────────────────

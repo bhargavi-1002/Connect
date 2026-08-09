@@ -15,8 +15,7 @@ export default function OnboardingPage() {
   const handleGoogle = async () => {
     setLoading(true);
     try {
-      const { isNew } = await signInWithGoogle();
-      setLocation(isNew ? "/setup-profile" : "/chats");
+      await signInWithGoogle();
     } catch (err: unknown) {
       toast({
         title: "Google sign-in failed",

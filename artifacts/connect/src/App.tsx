@@ -53,15 +53,42 @@ function ProtectedRoute({ component: Component }: { component: React.ComponentTy
   return <Component />;
 }
 
+function PublicRoute({ component: Component }: { component: React.ComponentType }) {
+  const { user, profile, loading } = useAuth();
+  const [, setLocation] = useLocation();
+
+  useEffect(() => {
+    if (!loading && user) {
+      setLocation(profile ? "/chats" : "/setup-profile");
+    }
+  }, [loading, user, profile, setLocation]);
+
+  if (loading || user) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-background">
+        <div className="w-10 h-10 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+      </div>
+    );
+  }
+
+  return <Component />;
+}
+
 function Router() {
   return (
     <Switch>
       {/* Public routes */}
       <Route path="/" component={LandingPage} />
-      <Route path="/onboarding" component={OnboardingPage} />
-      <Route path="/signup" component={SignupPage} />
+      <Route path="/onboarding">
+        {() => <PublicRoute component={OnboardingPage} />}
+      </Route>
+      <Route path="/signup">
+        {() => <PublicRoute component={SignupPage} />}
+      </Route>
       <Route path="/setup-profile" component={SetupProfilePage} />
-      <Route path="/login" component={LoginPage} />
+      <Route path="/login">
+        {() => <PublicRoute component={LoginPage} />}
+      </Route>
       <Route path="/invite/:username" component={InvitePage} />
 
       {/* Protected routes */}

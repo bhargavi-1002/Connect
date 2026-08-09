@@ -4,6 +4,6 @@
   "buildCommand": "BASE_PATH=/ PORT=3000 pnpm --filter @workspace/connect build",
   "outputDirectory": "artifacts/connect/dist/public",
   "rewrites": [
-    { "source": "/((?!api/).*)", "destination": "/" }
+    { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

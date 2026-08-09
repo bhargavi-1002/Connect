@@ -2,9 +2,9 @@ import { useState } from "react";
 import { Link, useLocation } from "wouter";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
-import { User, Loader2 } from "lucide-react";
+import { User, Loader2, Sparkles } from "lucide-react";
 import { AppLayout } from "@/components/app-layout";
-import { signInWithGoogle } from "@/lib/auth";
+import { signInWithGoogle, signInAsGuest } from "@/lib/auth";
 import { useToast } from "@/hooks/use-toast";
 
 export default function OnboardingPage() {
@@ -16,11 +16,26 @@ export default function OnboardingPage() {
     setLoading(true);
     try {
       const { isNew } = await signInWithGoogle();
-      // New users → set up their username first
       setLocation(isNew ? "/setup-profile" : "/chats");
     } catch (err: unknown) {
       toast({
         title: "Google sign-in failed",
+        description: err instanceof Error ? err.message : "Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGuest = async () => {
+    setLoading(true);
+    try {
+      const { isNew } = await signInAsGuest();
+      setLocation(isNew ? "/setup-profile" : "/chats");
+    } catch (err: unknown) {
+      toast({
+        title: "Guest sign-in failed",
         description: err instanceof Error ? err.message : "Please try again.",
         variant: "destructive",
       });
@@ -89,6 +104,21 @@ export default function OnboardingPage() {
               Login with Username
             </Button>
           </Link>
+
+          {/* Guest Login */}
+          <Button
+            onClick={handleGuest}
+            disabled={loading}
+            variant="outline"
+            className="w-full h-14 rounded-2xl glass-card border-white/10 hover:bg-white/5 font-medium text-base mt-2"
+          >
+            {loading ? (
+              <Loader2 className="w-5 h-5 mr-3 animate-spin" />
+            ) : (
+              <Sparkles className="w-5 h-5 mr-3 text-secondary" />
+            )}
+            Continue as Guest
+          </Button>
         </div>
 
         <p className="mt-8 text-sm text-muted-foreground">

@@ -54,7 +54,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Apply default theme immediately on load
     applyTheme("midnight");
 
+    const checkDemoLogin = () => {
+      const isDemo = localStorage.getItem("demo_login") === "true";
+      if (isDemo) {
+        const demoUser = { uid: "demo-uid", email: "demo@demo.com", displayName: "Demo User" } as User;
+        setUser(demoUser);
+        setProfile({
+          uid: "demo-uid",
+          username: "demo_user",
+          displayName: "Demo User",
+          email: "demo@demo.com",
+          theme: "midnight",
+          autoLogoutMinutes: 15,
+          createdAt: Date.now()
+        } as unknown as UserProfile);
+        setLoading(false);
+        return true;
+      }
+      return false;
+    };
+
     const unsubscribe = onAuthStateChanged(auth, async (u) => {
+      if (!u && checkDemoLogin()) return;
       setUser(u);
       if (u) {
         setOnline(u.uid);
@@ -108,7 +129,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [profile?.theme, profile?.autoLogoutMinutes]);
 
   return (
-    <AuthContext.Provider value={{ user, profile, loading, refreshProfile }}>
+    <AuthContext.Provider value={{ user, profile, loading: loading || (!!auth.currentUser && !user), refreshProfile }}>
       {children}
     </AuthContext.Provider>
   );

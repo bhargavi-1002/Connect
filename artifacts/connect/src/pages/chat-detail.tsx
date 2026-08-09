@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Link, useRoute, useLocation } from "wouter";
-import { ArrowLeft, Phone, Video, Send, MoreVertical, Mic, Plus, Pin, Archive, PinOff, ArchiveRestore, Loader2, Play, Pause, FileText, MapPin, Image, Film, Trash2, Eraser, Tag } from "lucide-react";
+import { ArrowLeft, Phone, Video, Send, MoreVertical, Mic, Plus, Pin, Archive, PinOff, ArchiveRestore, Loader2, Play, Pause, FileText, MapPin, Image, Film, Trash2, Eraser, Tag, UserPlus, Search } from "lucide-react";
 import { AppLayout } from "@/components/app-layout";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/contexts/AuthContext";
@@ -8,7 +8,7 @@ import {
   getChat, listenToMessages, sendMessage, markChatRead,
   setTyping, listenToTyping, markMessageRead,
   pinChat, unpinChat, archiveChat, unarchiveChat,
-  deleteChat, clearChatMessages,
+  deleteChat, clearChatMessages, addMemberToChat, searchUsersByUsername,
   uploadFile, updateChatCategory,
   getUserProfile,
   type Chat, type Message, type ChatCategory, type UserProfile,
@@ -61,6 +61,11 @@ export default function ChatDetailPage() {
   const [otherProfile, setOtherProfile] = useState<UserProfile | null>(null);
   const [profileLoading, setProfileLoading] = useState(false);
   const [showCategoryPicker, setShowCategoryPicker] = useState(false);
+  const [showAddMember, setShowAddMember] = useState(false);
+  const [addMemberSearch, setAddMemberSearch] = useState("");
+  const [addMemberDebounced, setAddMemberDebounced] = useState("");
+  const [addMemberResults, setAddMemberResults] = useState<UserProfile[]>([]);
+  const [addingMemberId, setAddingMemberId] = useState<string | null>(null);
   const [, navigate] = useLocation();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -108,6 +113,44 @@ export default function ChatDetailPage() {
     if (user) setTyping(chatId, user.uid, false);
     await sendMessage(chatId, profile, msg, selectedPriority, chat.participants);
     setSelectedPriority("normal");
+  };
+
+  useEffect(() => {
+    const t = setTimeout(() => setAddMemberDebounced(addMemberSearch), 500);
+    return () => clearTimeout(t);
+  }, [addMemberSearch]);
+
+  useEffect(() => {
+    if (!addMemberDebounced || addMemberDebounced.length < 2) { setAddMemberResults([]); return; }
+    searchUsersByUsername(addMemberDebounced).then(res => {
+      if (chat) {
+        setAddMemberResults(res.filter(u => !chat.participants.includes(u.uid)));
+      } else {
+        setAddMemberResults([]);
+      }
+    });
+  }, [addMemberDebounced, chat]);
+
+  const handleAddMember = async (target: UserProfile) => {
+    if (!chat || !profile) return;
+    setAddingMemberId(target.uid);
+    try {
+      await addMemberToChat(chatId, target);
+      await sendMessage(chatId, profile, `${profile.displayName} added ${target.displayName} to the chat`, "normal", chat.participants);
+      setChat(prev => prev ? {
+        ...prev,
+        participants: [...prev.participants, target.uid],
+        participantNames: { ...prev.participantNames, [target.uid]: target.displayName },
+        isGroup: true
+      } : prev);
+      toast({ title: "Member added!" });
+      setShowAddMember(false);
+      setAddMemberSearch("");
+    } catch (err: unknown) {
+      toast({ title: "Failed to add member", description: err instanceof Error ? err.message : "Try again.", variant: "destructive" });
+    } finally {
+      setAddingMemberId(null);
+    }
   };
 
   const handleUploadAndSend = async (
@@ -348,6 +391,12 @@ export default function ChatDetailPage() {
                     className="w-full flex items-center gap-3 px-4 py-3 text-sm hover:bg-white/5 transition-colors"
                   >
                     <Tag className="w-4 h-4 text-muted-foreground" /> {chat.category && chat.category !== "normal" ? `Category: ${chat.category}` : "Set Category"}
+                  </button>
+                  <button
+                    onClick={() => { setShowAddMember(true); setShowMenu(false); }}
+                    className="w-full flex items-center gap-3 px-4 py-3 text-sm hover:bg-white/5 transition-colors"
+                  >
+                    <UserPlus className="w-4 h-4 text-muted-foreground" /> Add Member
                   </button>
                   <div className="border-t border-white/10 my-1" />
                   <button
@@ -691,6 +740,62 @@ export default function ChatDetailPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog open={showAddMember} onOpenChange={setShowAddMember}>
+        <DialogContent className="bg-card border border-white/10 rounded-3xl max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Add Member to Chat</DialogTitle>
+            <DialogDescription>
+              Search for a user to add them to this conversation.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="relative">
+              <Search className="absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+              <input
+                type="text"
+                className="w-full bg-white/5 border border-white/10 rounded-xl pl-9 pr-4 py-2 text-sm text-white focus:outline-none focus:border-primary transition-colors placeholder:text-muted-foreground"
+                placeholder="Search by username..."
+                value={addMemberSearch}
+                onChange={(e) => setAddMemberSearch(e.target.value)}
+              />
+            </div>
+            
+            <div className="space-y-2 max-h-[300px] overflow-y-auto pr-2 scrollbar-none">
+              {addMemberResults.length === 0 && addMemberDebounced.length >= 2 ? (
+                <div className="text-center py-4 text-sm text-muted-foreground">
+                  No new users found
+                </div>
+              ) : (
+                addMemberResults.map(u => (
+                  <div key={u.uid} className="flex items-center justify-between p-2 rounded-xl hover:bg-white/5 transition-colors">
+                    <div className="flex items-center gap-3">
+                      {u.photoURL ? (
+                        <img src={u.photoURL} alt={u.username} className="w-10 h-10 rounded-full object-cover" />
+                      ) : (
+                        <div className="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center text-primary font-medium">
+                          {u.username.charAt(0).toUpperCase()}
+                        </div>
+                      )}
+                      <div>
+                        <div className="text-sm font-medium text-white">{u.displayName}</div>
+                        <div className="text-xs text-muted-foreground">@{u.username}</div>
+                      </div>
+                    </div>
+                    <button
+                      disabled={addingMemberId === u.uid}
+                      onClick={() => handleAddMember(u)}
+                      className="text-xs bg-primary hover:bg-primary/90 text-white px-3 py-1.5 rounded-full font-medium disabled:opacity-50"
+                    >
+                      {addingMemberId === u.uid ? "Adding..." : "Add"}
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </AppLayout>
   );
 }

@@ -215,7 +215,10 @@ export function listenToIncomingRequests(uid: string, cb: (reqs: ContactRequest[
     );
     return onSnapshot(q,
       snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() }) as ContactRequest)),
-      () => cb([])
+      (error) => {
+        console.error("listenToIncomingRequests error:", error);
+        cb([]);
+      }
     );
   } catch {
     cb([]);
@@ -346,6 +349,22 @@ export async function deleteChat(chatId: string) {
   try {
     await deleteDoc(doc(db, "chats", chatId));
   } catch { /* ignore */ }
+}
+
+export async function addMemberToChat(chatId: string, newMember: UserProfile) {
+  try {
+    const chatRef = doc(db, "chats", chatId);
+    await updateDoc(chatRef, {
+      participants: arrayUnion(newMember.uid),
+      [`participantNames.${newMember.uid}`]: newMember.displayName,
+      [`participantPhotos.${newMember.uid}`]: newMember.photoURL || null,
+      [`unreadCount.${newMember.uid}`]: 0,
+      isGroup: true
+    });
+  } catch (err) {
+    console.error("Failed to add member:", err);
+    throw err;
+  }
 }
 
 export async function clearChatMessages(chatId: string) {
@@ -545,12 +564,15 @@ export function listenToEmergencyAlerts(uid: string, cb: (alerts: EmergencyAlert
     const q = query(
       collection(db, "emergencyAlerts"),
       where("recipientUids", "array-contains", uid),
-      orderBy("createdAt", "desc"),
       limit(20)
     );
     return onSnapshot(q,
-      snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() }) as EmergencyAlert)),
-      () => cb([])
+      snap => {
+        const alerts = snap.docs.map(d => ({ id: d.id, ...d.data() }) as EmergencyAlert);
+        alerts.sort((a, b) => (b.createdAt?.toMillis() ?? 0) - (a.createdAt?.toMillis() ?? 0));
+        cb(alerts);
+      },
+      (error) => { console.error("listenToEmergencyAlerts error:", error); cb([]); }
     );
   } catch {
     cb([]);
@@ -563,12 +585,15 @@ export function listenToMyAlerts(uid: string, cb: (alerts: EmergencyAlert[]) => 
     const q = query(
       collection(db, "emergencyAlerts"),
       where("senderUid", "==", uid),
-      orderBy("createdAt", "desc"),
-      limit(10)
+      limit(20)
     );
     return onSnapshot(q,
-      snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() }) as EmergencyAlert)),
-      () => cb([])
+      snap => {
+        const alerts = snap.docs.map(d => ({ id: d.id, ...d.data() }) as EmergencyAlert);
+        alerts.sort((a, b) => (b.createdAt?.toMillis() ?? 0) - (a.createdAt?.toMillis() ?? 0));
+        cb(alerts);
+      },
+      (error) => { console.error("listenToMyAlerts error:", error); cb([]); }
     );
   } catch {
     cb([]);
@@ -609,12 +634,15 @@ export function listenToDevices(uid: string, cb: (devices: Device[]) => void) {
   try {
     const q = query(
       collection(db, "devices"),
-      where("uid", "==", uid),
-      orderBy("lastActive", "desc")
+      where("uid", "==", uid)
     );
     return onSnapshot(q,
-      snap => cb(snap.docs.map(d => ({ id: d.id, ...d.data() }) as Device)),
-      () => cb([])
+      snap => {
+        const devices = snap.docs.map(d => ({ id: d.id, ...d.data() }) as Device);
+        devices.sort((a, b) => (b.lastActive?.toMillis() ?? 0) - (a.lastActive?.toMillis() ?? 0));
+        cb(devices);
+      },
+      (error) => { console.error("listenToDevices error:", error); cb([]); }
     );
   } catch {
     cb([]);

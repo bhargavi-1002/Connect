@@ -26,7 +26,7 @@ export default function SettingsPage() {
       title: "Account",
       items: [
         { icon: User,      title: "Profile Info",        desc: profile ? `@${profile.username}` : "Name, avatar, bio",    path: "/profile" },
-        { icon: Shield,    title: "Privacy & Security",  desc: "Password, visibility",                                       path: "#" },
+        { icon: Shield,    title: "Privacy & Security",  desc: "Password, visibility",                                       path: "/settings/security" },
       ],
     },
     {

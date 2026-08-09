@@ -6,6 +6,7 @@ import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   sendPasswordResetEmail,
+  updatePassword,
   signOut,
   updateProfile,
   signInAnonymously,
@@ -114,3 +115,9 @@ export async function logout() {
   } catch { /* ignore */ }
   await signOut(auth);
 }
+
+export async function updateUserPassword(newPassword: string) {
+  if (!auth.currentUser) throw new Error("Not logged in");
+  await updatePassword(auth.currentUser, newPassword);
+}
+

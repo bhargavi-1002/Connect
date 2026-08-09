@@ -16,6 +16,7 @@ import ChatDetailPage from "@/pages/chat-detail";
 import SendPriorityPage from "@/pages/send-priority";
 import ThemesPage from "@/pages/themes";
 import SettingsPage from "@/pages/settings";
+import SecuritySettingsPage from "@/pages/settings-security";
 import DevicesPage from "@/pages/devices";
 import AutoLogoutPage from "@/pages/auto-logout";
 import CreateGroupPage from "@/pages/create-group";
@@ -78,6 +79,9 @@ function Router() {
       </Route>
       <Route path="/settings">
         {() => <ProtectedRoute component={SettingsPage} />}
+      </Route>
+      <Route path="/settings/security">
+        {() => <ProtectedRoute component={SecuritySettingsPage} />}
       </Route>
       <Route path="/settings/devices">
         {() => <ProtectedRoute component={DevicesPage} />}

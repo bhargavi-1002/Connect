@@ -9,6 +9,9 @@ import { AppLayout } from "@/components/app-layout";
 import { loginWithUsernameOrEmail, signInWithGoogle } from "@/lib/auth";
 import { getUserProfile } from "@/lib/firestore";
 import { useToast } from "@/hooks/use-toast";
+import { resetPassword } from "@/lib/auth";
+import { getDoc, doc } from "firebase/firestore";
+import { db } from "@/lib/firebase";
 
 function mapLoginError(msg: string): string {
   if (msg.includes("user-not-found") || msg.includes("wrong-password") || msg.includes("invalid-credential")) {
@@ -68,10 +71,6 @@ export default function LoginPage() {
   };
 
   const handleForgotPassword = async () => {
-    const { resetPassword } = await import("@/lib/auth");
-    const { getDoc, doc } = await import("firebase/firestore");
-    const { db } = await import("@/lib/firebase");
-
     let email = identifier.trim();
     if (!email) {
       toast({ title: "Enter your username or email first", variant: "destructive" });

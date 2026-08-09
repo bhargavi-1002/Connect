@@ -56,6 +56,9 @@ export interface Chat {
   pinnedBy?: Record<string, boolean>;
   archivedBy?: Record<string, boolean>;
   category?: ChatCategory;
+  mutedBy?: Record<string, boolean>;
+  theme?: string;
+  disappearingMessages?: number;
 }
 
 export interface Message {
@@ -343,6 +346,19 @@ export async function updateChatCategory(chatId: string, category: ChatCategory)
   try {
     await updateDoc(doc(db, "chats", chatId), { category });
   } catch { /* ignore */ }
+}
+
+export async function muteChat(chatId: string, uid: string) {
+  try { await updateDoc(doc(db, "chats", chatId), { [`mutedBy.${uid}`]: true }); } catch { /* ignore */ }
+}
+export async function unmuteChat(chatId: string, uid: string) {
+  try { await updateDoc(doc(db, "chats", chatId), { [`mutedBy.${uid}`]: false }); } catch { /* ignore */ }
+}
+export async function setChatTheme(chatId: string, theme: string) {
+  try { await updateDoc(doc(db, "chats", chatId), { theme }); } catch { /* ignore */ }
+}
+export async function setDisappearingMessages(chatId: string, timeInSeconds: number) {
+  try { await updateDoc(doc(db, "chats", chatId), { disappearingMessages: timeInSeconds }); } catch { /* ignore */ }
 }
 
 export async function deleteChat(chatId: string) {

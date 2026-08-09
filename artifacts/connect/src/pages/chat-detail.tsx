@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Link, useRoute, useLocation } from "wouter";
-import { ArrowLeft, Phone, Video, Send, MoreVertical, Mic, Plus, Pin, Archive, PinOff, ArchiveRestore, Loader2, Play, Pause, FileText, MapPin, Image, Film, Trash2, Eraser, Tag, UserPlus, Search } from "lucide-react";
+import { ArrowLeft, Phone, Video, Send, MoreVertical, Mic, Plus, Pin, Archive, PinOff, ArchiveRestore, Loader2, Play, Pause, FileText, MapPin, Image as ImageIcon, Film, Trash2, Eraser, Tag, UserPlus, Search, Info, Bell, BellOff, Palette, Timer } from "lucide-react";
 import { AppLayout } from "@/components/app-layout";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAuth } from "@/contexts/AuthContext";
@@ -9,6 +9,7 @@ import {
   setTyping, listenToTyping, markMessageRead,
   pinChat, unpinChat, archiveChat, unarchiveChat,
   deleteChat, clearChatMessages, addMemberToChat, searchUsersByUsername,
+  muteChat, unmuteChat, setChatTheme, setDisappearingMessages,
   uploadFile, updateChatCategory,
   getUserProfile,
   type Chat, type Message, type ChatCategory, type UserProfile,
@@ -66,6 +67,8 @@ export default function ChatDetailPage() {
   const [addMemberDebounced, setAddMemberDebounced] = useState("");
   const [addMemberResults, setAddMemberResults] = useState<UserProfile[]>([]);
   const [addingMemberId, setAddingMemberId] = useState<string | null>(null);
+  const [showChatInfo, setShowChatInfo] = useState(false);
+  const [showThemePicker, setShowThemePicker] = useState(false);
   const [, navigate] = useLocation();
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -367,6 +370,13 @@ export default function ChatDetailPage() {
                   exit={{ opacity: 0, y: -8 }}
                   className="absolute right-0 top-full mt-1 w-48 bg-card border border-white/10 rounded-2xl shadow-2xl overflow-hidden z-50"
                 >
+                  <button
+                    onClick={() => { setShowChatInfo(true); setShowMenu(false); }}
+                    className="w-full flex items-center gap-3 px-4 py-3 text-sm hover:bg-white/5 transition-colors"
+                  >
+                    <Info className="w-4 h-4 text-muted-foreground" /> Chat Info
+                  </button>
+                  <div className="border-t border-white/10 my-1" />
                   {isPinned ? (
                     <button onClick={() => { unpinChat(chatId, user!.uid); setShowMenu(false); }} className="w-full flex items-center gap-3 px-4 py-3 text-sm hover:bg-white/5 transition-colors">
                       <PinOff className="w-4 h-4 text-muted-foreground" /> Unpin Chat
@@ -487,7 +497,10 @@ export default function ChatDetailPage() {
 
                 {/* Media: Audio */}
                 {msg.mediaType === "audio" && msg.mediaURL && (
-                  <div className={`px-4 py-3 ${isMine ? `bg-gradient-to-br ${pConfig.gradient} text-white rounded-2xl rounded-br-sm` : "bg-card/80 backdrop-blur-sm rounded-2xl rounded-bl-sm border border-white/5"} mb-1`}>
+                  <div 
+                    className={`px-4 py-3 ${isMine ? (msg.priority === "normal" && chat?.theme ? "text-white rounded-2xl rounded-br-sm" : `bg-gradient-to-br ${pConfig.gradient} text-white rounded-2xl rounded-br-sm`) : "bg-card/80 backdrop-blur-sm rounded-2xl rounded-bl-sm border border-white/5"} mb-1`}
+                    style={isMine && msg.priority === "normal" && chat?.theme ? { background: chat.theme } : undefined}
+                  >
                     <button
                       onClick={() => playAudio(msg.id, msg.mediaURL!)}
                       className="flex items-center gap-3"
@@ -511,7 +524,8 @@ export default function ChatDetailPage() {
                     href={msg.mediaURL}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className={`flex items-center gap-3 px-4 py-3 ${isMine ? `bg-gradient-to-br ${pConfig.gradient} text-white rounded-2xl rounded-br-sm` : "bg-card/80 backdrop-blur-sm rounded-2xl rounded-bl-sm border border-white/5"} mb-1 hover:opacity-90 transition-opacity`}
+                    className={`flex items-center gap-3 px-4 py-3 ${isMine ? (msg.priority === "normal" && chat?.theme ? "text-white rounded-2xl rounded-br-sm" : `bg-gradient-to-br ${pConfig.gradient} text-white rounded-2xl rounded-br-sm`) : "bg-card/80 backdrop-blur-sm rounded-2xl rounded-bl-sm border border-white/5"} mb-1 hover:opacity-90 transition-opacity`}
+                    style={isMine && msg.priority === "normal" && chat?.theme ? { background: chat.theme } : undefined}
                   >
                     <FileText className="w-8 h-8 flex-shrink-0" />
                     <div className="flex flex-col min-w-0">
@@ -527,7 +541,8 @@ export default function ChatDetailPage() {
                     href={`https://www.google.com/maps?q=${msg.latitude},${msg.longitude}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className={`flex items-center gap-3 px-4 py-3 ${isMine ? `bg-gradient-to-br ${pConfig.gradient} text-white rounded-2xl rounded-br-sm` : "bg-card/80 backdrop-blur-sm rounded-2xl rounded-bl-sm border border-white/5"} mb-1 hover:opacity-90 transition-opacity`}
+                    className={`flex items-center gap-3 px-4 py-3 ${isMine ? (msg.priority === "normal" && chat?.theme ? "text-white rounded-2xl rounded-br-sm" : `bg-gradient-to-br ${pConfig.gradient} text-white rounded-2xl rounded-br-sm`) : "bg-card/80 backdrop-blur-sm rounded-2xl rounded-bl-sm border border-white/5"} mb-1 hover:opacity-90 transition-opacity`}
+                    style={isMine && msg.priority === "normal" && chat?.theme ? { background: chat.theme } : undefined}
                   >
                     <MapPin className="w-8 h-8 flex-shrink-0" />
                     <div className="flex flex-col">
@@ -539,11 +554,14 @@ export default function ChatDetailPage() {
 
                 {/* Text content */}
                 {msg.text && msg.mediaType !== "location" && (
-                  <div className={`px-4 py-3 text-[15px] leading-relaxed ${
-                    isMine
-                      ? `bg-gradient-to-br ${pConfig.gradient} text-white rounded-2xl rounded-br-sm shadow-lg`
-                      : "bg-card/80 backdrop-blur-sm text-white rounded-2xl rounded-bl-sm border border-white/5"
-                  }`}>
+                  <div 
+                    className={`px-4 py-3 text-[15px] leading-relaxed ${
+                      isMine
+                        ? (msg.priority === "normal" && chat?.theme ? "text-white rounded-2xl rounded-br-sm shadow-lg" : `bg-gradient-to-br ${pConfig.gradient} text-white rounded-2xl rounded-br-sm shadow-lg`)
+                        : "bg-card/80 backdrop-blur-sm text-white rounded-2xl rounded-bl-sm border border-white/5"
+                    }`}
+                    style={isMine && msg.priority === "normal" && chat?.theme ? { background: chat.theme } : undefined}
+                  >
                     {msg.text}
                   </div>
                 )}
@@ -793,6 +811,108 @@ export default function ChatDetailPage() {
                 ))
               )}
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showChatInfo} onOpenChange={setShowChatInfo}>
+        <DialogContent className="bg-card border border-white/10 rounded-3xl max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Chat Info</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-4 max-h-[70vh] overflow-y-auto scrollbar-none">
+            {/* Media preview */}
+            <div className="bg-white/5 rounded-2xl p-4 flex flex-col gap-2">
+              <div className="flex items-center justify-between">
+                <span className="font-medium text-sm">Media, Links, and Docs</span>
+                <span className="text-xs text-muted-foreground">{messages.filter(m => m.mediaURL).length}</span>
+              </div>
+              <div className="flex gap-2 overflow-x-auto scrollbar-none pb-2">
+                {messages.filter(m => m.mediaType === "image").slice(0, 5).map(m => (
+                  <img key={m.id} src={m.mediaURL!} alt="media" className="w-16 h-16 rounded-xl object-cover flex-shrink-0" />
+                ))}
+              </div>
+            </div>
+
+            {/* Settings */}
+            <div className="bg-white/5 rounded-2xl p-2 flex flex-col">
+              <button
+                onClick={() => chat?.mutedBy?.[user!.uid] ? unmuteChat(chatId, user!.uid) : muteChat(chatId, user!.uid)}
+                className="flex items-center justify-between p-3 rounded-xl hover:bg-white/5 transition-colors"
+              >
+                <div className="flex items-center gap-3">
+                  {chat?.mutedBy?.[user!.uid] ? <BellOff className="w-5 h-5 text-muted-foreground" /> : <Bell className="w-5 h-5 text-muted-foreground" />}
+                  <span className="text-sm">Mute notifications</span>
+                </div>
+                <div className={`w-10 h-6 rounded-full flex items-center px-1 transition-colors ${chat?.mutedBy?.[user!.uid] ? "bg-primary" : "bg-white/10"}`}>
+                  <div className={`w-4 h-4 rounded-full bg-white transition-transform ${chat?.mutedBy?.[user!.uid] ? "translate-x-4" : "translate-x-0"}`} />
+                </div>
+              </button>
+
+              <button onClick={() => { setShowThemePicker(true); setShowChatInfo(false); }} className="flex items-center justify-between p-3 rounded-xl hover:bg-white/5 transition-colors">
+                <div className="flex items-center gap-3">
+                  <Palette className="w-5 h-5 text-muted-foreground" />
+                  <span className="text-sm">Chat theme</span>
+                </div>
+                <div className="w-4 h-4 rounded-full border border-white/20" style={{ background: chat?.theme || "var(--primary)" }} />
+              </button>
+
+              <button onClick={() => setDisappearingMessages(chatId, chat?.disappearingMessages ? 0 : 86400)} className="flex items-center justify-between p-3 rounded-xl hover:bg-white/5 transition-colors">
+                <div className="flex items-center gap-3">
+                  <Timer className="w-5 h-5 text-muted-foreground" />
+                  <span className="text-sm">Disappearing messages</span>
+                </div>
+                <span className="text-xs text-muted-foreground">{chat?.disappearingMessages ? "On" : "Off"}</span>
+              </button>
+            </div>
+
+            {/* Group Members (if group) */}
+            {chat?.isGroup && (
+              <div className="bg-white/5 rounded-2xl p-4 flex flex-col gap-3">
+                <div className="flex items-center justify-between">
+                  <span className="font-medium text-sm">{chat.participants.length} Members</span>
+                  <button onClick={() => { setShowAddMember(true); setShowChatInfo(false); }} className="text-xs text-primary font-medium flex items-center gap-1">
+                    <Plus className="w-3 h-3" /> Add
+                  </button>
+                </div>
+                <div className="space-y-3">
+                  {chat.participants.map(pUid => (
+                    <div key={pUid} className="flex items-center gap-3">
+                      {chat.participantPhotos?.[pUid] ? (
+                        <img src={chat.participantPhotos[pUid]!} alt="photo" className="w-8 h-8 rounded-full object-cover" />
+                      ) : (
+                        <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-primary text-xs font-medium">
+                          {(chat.participantNames?.[pUid] || "U").charAt(0).toUpperCase()}
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium truncate">{chat.participantNames?.[pUid] || "User"}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showThemePicker} onOpenChange={(open) => { setShowThemePicker(open); if(!open) setShowChatInfo(true); }}>
+        <DialogContent className="bg-card border border-white/10 rounded-3xl max-w-xs">
+          <DialogHeader>
+            <DialogTitle>Select Theme</DialogTitle>
+          </DialogHeader>
+          <div className="grid grid-cols-5 gap-4 py-4">
+            {["#7C4DFF", "#F44336", "#E91E63", "#9C27B0", "#2196F3", "#00BCD4", "#4CAF50", "#FF9800", "#FFC107", "#FF5722"].map(color => (
+              <button
+                key={color}
+                onClick={() => { setChatTheme(chatId, color); setShowThemePicker(false); setShowChatInfo(true); }}
+                className="w-10 h-10 rounded-full border-2 border-white/10 flex items-center justify-center transition-transform hover:scale-110"
+                style={{ background: color }}
+              >
+                {chat?.theme === color && <div className="w-3 h-3 bg-white rounded-full" />}
+              </button>
+            ))}
           </div>
         </DialogContent>
       </Dialog>
